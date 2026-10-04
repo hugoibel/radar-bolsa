@@ -84,20 +84,20 @@ TEMAS = {
                          "Renewable Electricity", "Heavy Electrical Equipment",
                          "Electrical Components & Equipment", "Multi-Utilities", "Coal & Consumable Fuels"],
                 "yind": ["utilities", "uranium", "solar", "electrical equipment"],
-                "nombre_kw": ["nuclear", "uranium", "solar", "energy", "power"],
+                "nombre_kw": ["nuclear", "uranium", "solar", "fusion", "battery"],   # "energy" metía petroleras
                 "wiki": ["Nuclear power", "Small modular reactor", "Electrical grid", "Solar power"],
                 "news": "nuclear energy stocks"},
     "salud": {"nombre": "Salud y biotecnología", "ico": "🧬",
               "gics": ["Biotechnology", "Pharmaceuticals", "Health Care Equipment",
                        "Life Sciences Tools & Services", "Health Care Technology", "Health Care Supplies"],
               "yind": ["biotechnology", "drug manufacturers", "medical", "diagnostics", "health information"],
-              "nombre_kw": ["therapeutics", "bio", "pharma", "medical", "health"],
+              "nombre_kw": ["therapeutics", "bio", "pharma", "medical", "genomic"],
               "wiki": ["Biotechnology", "GLP-1 receptor agonist", "CRISPR gene editing", "Cancer immunotherapy"],
               "news": "biotech stocks"},
     "defensa": {"nombre": "Defensa, espacio y ciberseguridad", "ico": "🛡️",
                 "gics": ["Aerospace & Defense"],
                 "yind": ["aerospace & defense", "security & protection"],
-                "nombre_kw": ["cyber", "defense", "space", "drone", "aerospace", "rocket"],
+                "nombre_kw": ["cyber", "defense", "drone", "aerospace", "rocket", "satellite"],  # "space" metía trasteros
                 "wiki": ["Computer security", "Unmanned aerial vehicle", "Satellite internet constellation",
                          "Military drone"],
                 "news": "defense stocks"},
@@ -300,7 +300,7 @@ def fundamentales(t):
     if not CRUMB["v"]:
         crumb()
     url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{t}"
-           f"?modules=financialData,price,summaryProfile&crumb={CRUMB['v']}")
+           f"?modules=financialData,price,summaryProfile,earnings&crumb={CRUMB['v']}")
     j = pedir(url, intentos=2)
     if j is None:                 # crumb caducado: se renueva una vez
         crumb()
@@ -315,10 +315,21 @@ def fundamentales(t):
         x = d.get(k)
         return x.get("raw") if isinstance(x, dict) else None
 
-    f = {"cr": v(fd, "revenueGrowth"), "mb": v(fd, "grossMargins"), "mn": v(fd, "profitMargins"),
+    f = {"cr_q": v(fd, "revenueGrowth"), "mb": v(fd, "grossMargins"), "mn": v(fd, "profitMargins"),
          "caja": v(fd, "totalCash"), "deuda": v(fd, "totalDebt"), "rev": v(fd, "totalRevenue"),
          "fcf": v(fd, "freeCashflow"), "mc": v(pr, "marketCap"),
          "ysector": sp.get("sector"), "yind": sp.get("industry")}
+    # Crecimiento ANUAL (último ejercicio vs el anterior). El de un solo trimestre
+    # engaña con cobros puntuales (licencias de biotecnológicas: +3.749 %).
+    anual = (((r.get("earnings") or {}).get("financialsChart") or {}).get("yearly") or [])
+    rv = [v(y, "revenue") for y in anual[-2:]]
+    if len(rv) == 2 and rv[0] and rv[0] > 0 and rv[1] is not None:
+        f["cr_a"] = rv[1] / rv[0] - 1
+    cands = [x for x in (f.get("cr_a"), f["cr_q"]) if x is not None]
+    if cands:
+        f["cr"] = min(cands)                     # solo cuenta el crecimiento sostenido
+    if f.get("cr_a") is not None and f["cr_q"] is not None and f["cr_q"] - f["cr_a"] > 1.0:
+        f["irreg"] = True                        # el trimestre se dispara frente al año
     if f["fcf"] is not None and f["fcf"] < 0 and f["caja"]:
         f["run"] = f["caja"] / -f["fcf"] * 4     # trimestres de caja al ritmo de quema actual
     return {k: x for k, x in f.items() if x is not None}
@@ -339,7 +350,11 @@ def precios(t, rango="1y"):
     c = [x[2] for x in fil]
 
     def ret(n):
-        return c[-1] / c[-1 - n] - 1 if len(c) > n else None
+        if len(c) > n:
+            return c[-1] / c[-1 - n] - 1
+        if n == 251 and len(c) >= 240:          # "1 año" de Yahoo trae ~250 sesiones
+            return c[-1] / c[0] - 1
+        return None
 
     ult = c[-252:]
     idx = list(range(len(c) - 1, -1, -5))[::-1]
@@ -497,7 +512,7 @@ def modo_rapido(salida):
     cast = sorted([e for e in lista if e.get("cast")],
                   key=lambda e: (-len(e.get("salud", [])), e.get("dd", 0)))[:15]
     rec = [e for e in lista if e["idx"] == "IPO"][:15]
-    obj = {"general": noticias("IPO", 8, dias=3)[0],
+    obj = {"general": noticias('IPO (Nasdaq OR NYSE)', 8, dias=3)[0],     # "IPO" a secas trae bolsas de todo el mundo
            "general_es": noticias("bolsa de valores Wall Street", 6, es=True, dias=3)[0],
            "temas": {k: noticias(T["news"], 4, dias=7)[0] for k, T in TEMAS.items()},
            "emp": {}}
@@ -586,10 +601,10 @@ def modo_completo(salida):
             e["cast"] = True
             e["salud"] = salud_castigada(e)
 
-    CAMPOS = ["t", "n", "idx", "sector", "sub", "yind", "tema", "px", "mc", "r1d", "r1m", "r3m", "r6m", "r1a",
-              "hi", "lo", "dd", "dv", "cr", "rev", "mb", "mn", "caja", "deuda", "fcf", "run",
+    CAMPOS = ["t", "n", "idx", "sector", "tema", "px", "mc", "r1d", "r1m", "r3m", "r6m", "r1a",
+              "hi", "dd", "cr", "cr_a", "cr_q", "irreg", "rev", "mb", "mn", "caja", "deuda", "run",
               "wv", "sc", "comp", "cast", "salud", "ipo_fecha", "ipo_px", "ipo_px_aj", "ipo_usd", "bolsa",
-              "ses", "r_ipo", "r_dia1", "grande", "lockup", "wiki"]
+              "ses", "r_ipo", "r_dia1", "grande", "lockup"]
     salida_e = []
     for e in empresas:
         o = {}

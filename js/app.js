@@ -104,12 +104,14 @@ function anillo(sc) {
     <circle cx="23" cy="23" r="${r}" fill="none" stroke="${col}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c * f} ${c}"/></svg><b>${sc}</b></div>`;
 }
 const temaTxt = k => { const t = S.res.temas[k]; return t ? `${t.ico} ${t.nombre}` : 'Otros sectores'; };
+const CORTO = { ia: 'IA y chips', energia: 'Energía', salud: 'Salud', defensa: 'Defensa', infra: 'Infraestructura', recursos: 'Recursos' };
+const temaCorto = k => { const t = S.res.temas[k]; return t ? `${t.ico} ${CORTO[k] || t.nombre}` : ''; };
 
 function filaEmp(e, der) {
   const izq = e.sc != null ? anillo(e.sc) : '';
   return `<div class="fila" data-t="${esc(e.t)}">${izq}
     <div class="info"><div class="nom"><span class="tk">${esc(e.t)}</span>${esc(e.n)}</div>
-    <div class="det">${esc(e.tema !== 'otros' ? temaTxt(e.tema) : e.sector)} · ${usd(e.mc)}</div></div>
+    <div class="det">${esc(e.tema !== 'otros' ? temaCorto(e.tema) : e.sector)} · ${usd(e.mc)}</div></div>
     <div class="der">${der ?? `<b>${precio(e.px)}</b><span class="${cls(e.r1a)}">${pct(e.r1a)} 1 año</span>`}</div></div>`;
 }
 
@@ -207,7 +209,7 @@ function ipoRecHTML(e) {
       <div class="der" style="text-align:right"><b class="${cls(e.r_ipo)}">${pct(e.r_ipo)}</b><div class="muted" style="font-size:11.5px">vs precio de salida</div></div></div>
     <div class="fase"><i style="width:${Math.min(100, 100 * (e.ses || 0) / tope)}%"></i><u style="left:${100 * m.sesion_min / tope}%"></u></div>
     <div class="fase-l"><span>Sesión ${e.ses || 0}</span><span>mínimo típico: sesión ${m.sesion_min}</span></div>
-    <div class="stat">${pasada ? '✅ Ya pasó la sesión en la que, de mediana, tocan fondo.' : `⏳ Le faltan ~${m.sesion_min - (e.ses || 0)} sesiones para la zona en la que, de mediana, tocan fondo.`}
+    <div class="stat">${(e.ipo_usd || 0) < 25e6 ? '<span class="tag mal">Oferta diminuta (< $25 M): muy fácil de manipular</span><br>' : ''}${pasada ? '✅ Ya pasó la sesión en la que, de mediana, tocan fondo.' : `⏳ Le faltan ~${m.sesion_min - (e.ses || 0)} sesiones para la zona en la que, de mediana, tocan fondo.`}
       ${dl != null && dl > 0 && dl < 120 ? `<br>🔓 Fin del bloqueo de vendedores (lock-up) en ${dl} días: suele traer ventas.` : ''}
       ${e.dd != null ? `<br>Caída desde su máximo: <b class="${cls(e.dd)}">${pct(e.dd)}</b>` : ''}</div>
   </div>`;
@@ -221,7 +223,8 @@ function pintarIpos() {
   const tabs = [['proximas', `Próximas (${prox.length})`], ['recientes', `Recientes (${rec.length})`], ['registradas', `Registradas (${reg.length})`]];
   let cuerpo = '';
   if (S.filtroIpo === 'proximas') {
-    cuerpo = prox.length ? prox.map(ipoProxHTML).join('') : '<div class="vacio">No hay salidas a bolsa con fecha en las próximas semanas.</div>';
+    cuerpo = (prox.length ? prox.map(ipoProxHTML).join('') : '<div class="vacio">No hay salidas a bolsa con fecha en las próximas semanas.</div>') +
+      `<p class="muted" style="font-size:13px;margin-top:14px">Nasdaq solo pone fecha unos días antes. Las candidatas de las próximas semanas están en <a href="#" data-fipo="registradas">Registradas (${reg.length})</a>: empresas que ya han pedido permiso a la SEC.</p>`;
   } else if (S.filtroIpo === 'recientes') {
     cuerpo = rec.slice(0, 120).map(ipoRecHTML).join('');
   } else {
@@ -244,7 +247,7 @@ function pintarPotencial() {
   L.sort((a, b) => b.sc - a.sc);
   $('#v-potencial').innerHTML = `
     <h2>🌱 Pequeñas con potencial</h2>
-    <p class="sub">${S.res.n_puntuadas} empresas pequeñas y medianas (valor en bolsa ≤ $10.000 M, con ventas y liquidez) puntuadas de 0 a 100: crecimiento de ventas 35 %, márgenes 30 %, solidez 15 %, tema importante 10 %, interés creciente 10 %.</p>
+    <p class="sub">${S.res.n_puntuadas} empresas pequeñas y medianas (valor en bolsa ≤ $10.000 M, con ventas y liquidez) puntuadas de 0 a 100: crecimiento de ventas sostenido 35 %, márgenes 30 %, solidez 15 %, tema importante 10 %, interés creciente 10 %. La cifra de la derecha es el crecimiento de ventas: el menor entre el anual y el del último trimestre, para que un cobro puntual no engañe.</p>
     <div class="aviso"><b>Regla, no bola de cristal:</b> la puntuación ordena por calidad y crecimiento, pero <b>no se ha probado</b> que gane al índice. Úsala como lista para investigar.</div>
     <div class="chips">${temas.map(([k, t]) => `<button class="chip ${S.filtroTema === k ? 'on' : ''}" data-ftema="${k}">${esc(t)}</button>`).join('')}</div>
     ${L.length ? L.slice(0, 100).map(e => filaEmp(e, `<b class="${cls(e.cr)}">${pct(e.cr, 0)}</b><span class="muted">ventas</span>`)).join('') : '<div class="vacio">Ninguna empresa de este tema pasa los filtros.</div>'}`;
@@ -309,7 +312,8 @@ function pintarGuia() {
       <dt>Salida a bolsa (IPO)</dt><dd>El día en que una empresa empieza a vender sus acciones al público. El precio de salida casi solo lo consiguen los fondos; tú compras ya con la subida del primer día.</dd>
       <dt>Lock-up (bloqueo)</dt><dd>Los dueños y empleados no pueden vender hasta unos 180 días después de la salida. Cuando se acaba el bloqueo, muchos venden y el precio suele sufrir.</dd>
       <dt>SPAC</dt><dd>Empresa «cheque en blanco»: sale a bolsa sin negocio para comprar otra empresa más tarde. Muy arriesgadas.</dd>
-      <dt>Crecimiento de ventas</dt><dd>Cuánto más vende ahora que hace un año. +40 % = vende 1,4 veces lo de antes.</dd>
+      <dt>Crecimiento de ventas</dt><dd>Cuánto más vende ahora que hace un año. +40 % = vende 1,4 veces lo de antes. La app usa el menor entre el del último año y el del último trimestre: así un cobro puntual (típico de las biotecnológicas) no parece un crecimiento de verdad.</dd>
+      <dt>Oferta diminuta</dt><dd>Salidas a bolsa de menos de $25 M. Con tan pocas acciones en circulación, unos pocos pueden mover el precio a su antojo: hay subidas de ×20 que luego se desploman.</dd>
       <dt>Margen bruto</dt><dd>De cada $100 que vende, cuánto le queda tras pagar lo que cuesta fabricar o dar el servicio. Más alto = negocio más fuerte.</dd>
       <dt>Margen neto (beneficio)</dt><dd>De cada $100 que vende, cuánto le queda al final, ya pagado todo. Negativo = pierde dinero.</dd>
       <dt>Caja y deuda</dt><dd>El dinero que tiene en el banco frente a lo que debe. Mucha caja y poca deuda = aguanta mejor una mala racha.</dd>
@@ -372,7 +376,8 @@ function abrirFicha(t) {
   const met = [
     ['Valor en bolsa', usd(e.mc), e.mc == null ? 'Sin dato' : e.mc < 2e9 ? 'Pequeña' : e.mc < 10e9 ? 'Mediana' : 'Grande'],
     ['Ventas (12 meses)', usd(e.rev), 'Lo que ha vendido en el último año'],
-    ['Crecimiento de ventas', `<span class="${cls(e.cr)}">${pct(e.cr)}</span>`, 'Frente al mismo trimestre del año pasado'],
+    ['Crecimiento anual', `<span class="${cls(e.cr_a)}">${pct(e.cr_a)}</span>`, 'Ventas del último año fiscal frente al anterior'],
+    ['Último trimestre', `<span class="${cls(e.cr_q)}">${pct(e.cr_q)}</span>`, e.irreg ? '⚠️ Se dispara frente al año: ingresos irregulares' : 'Frente al mismo trimestre del año pasado'],
     ['Margen bruto', pct(e.mb, 0, false), 'Lo que le queda tras el coste directo'],
     ['Margen neto', `<span class="${cls(e.mn)}">${pct(e.mn, 1)}</span>`, e.mn < 0 ? 'Pierde dinero' : 'Lo que gana al final'],
     ['Caja / Deuda', `${usd(e.caja)} / ${usd(e.deuda)}`, 'Dinero en el banco frente a lo que debe'],
@@ -404,7 +409,7 @@ function abrirFicha(t) {
       <div class="l"><span>${NOM[k]}</span><b>${v}</b></div><div class="barra"><i style="width:${v}%"></i></div>`).join('')}
       <p class="muted" style="font-size:12px;margin:10px 0 0">Cada barra compara la empresa con las otras ${S.res.n_puntuadas} puntuadas (100 = la mejor). Regla sin probar contra el índice.</p></div>` : ''}
     ${e.cast ? `<h3>Señales de salud tras la caída</h3><div>${(e.salud || []).map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('') || '<span class="tag mal">Ninguna: cuidado, puede ser un negocio en problemas</span>'}</div>` : ''}
-    <h3>Las cifras</h3><div class="met">${met.map(([a, b, c]) => `<div><span>${a}</span><b>${b}</b><em>${c}</em></div>`).join('')}</div>
+    <h3>Las cifras</h3><div class="met">${met.map(([a, b, c]) => `<div><span class="et">${a}</span><b>${b}</b><em>${c}</em></div>`).join('')}</div>
     <h3>Noticias</h3><div class="card">${noticiasHTML(notis, 'No hay titulares guardados de esta empresa.')}</div>
     <div class="enlaces">
       <a class="btn pri" href="https://finance.yahoo.com/quote/${esc(e.t)}" target="_blank" rel="noopener">Yahoo Finance</a>
@@ -437,7 +442,7 @@ document.addEventListener('click', ev => {
   const fc = ev.target.closest('[data-fcaida]');
   if (fc) { S.filtroCaida = fc.dataset.fcaida; return pintarCaidas(); }
   const fi = ev.target.closest('[data-fipo]');
-  if (fi) { S.filtroIpo = fi.dataset.fipo; return pintarIpos(); }
+  if (fi) { ev.preventDefault(); S.filtroIpo = fi.dataset.fipo; return pintarIpos(); }
   const f = ev.target.closest('[data-t]');
   if (f && !ev.target.closest('.hoja')) return abrirFicha(f.dataset.t);
 });
