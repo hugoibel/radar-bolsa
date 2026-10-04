@@ -16,5 +16,8 @@ nice -n 19 ionice -c3 python3 -u /root/radar_bolsa/colector.py "$MODO" --salida 
 
 git add data
 if ! git diff --cached --quiet; then
-  git commit -qm "datos $MODO $(date -u +%F\ %H:%M) UTC" && git push -q origin main >> "$LOG" 2>&1
+  # se vuelve a traer lo remoto justo antes: la pasada dura ~20 min y mientras tanto
+  # pueden haber llegado cambios de la app desde el PC (no tocan data/, no chocan)
+  git commit -qm "datos $MODO $(date -u +%F\ %H:%M) UTC" && git pull -q --rebase origin main >> "$LOG" 2>&1 \
+    && git push -q origin main >> "$LOG" 2>&1
 fi

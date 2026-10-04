@@ -28,9 +28,11 @@ CACHE = "/root/radar-bolsa-cache"
 NAV = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
        "Accept": "application/json, text/plain, */*"}
-# Wikimedia exige un User-Agent que identifique al programa. (La SEC exige además
-# un email real de contacto: por eso los fundamentales salen de Yahoo y no de ella.)
+# Wikimedia exige un User-Agent que identifique al programa.
 BOT = {"User-Agent": "RadarBolsa/1.0 (+https://hugoibel.github.io/radar-bolsa/)"}
+# La SEC exige además un email REAL de contacto (con uno anónimo responde 403). Vive
+# en un archivo del VPS, fuera del repo público; sin él se salta la parte de la SEC.
+SEC_CONTACTO = "/root/radar_bolsa/sec_contacto.txt"
 
 HOY = dt.date.today()
 SES = requests.Session()
@@ -374,6 +376,106 @@ def precios(t, rango="1y"):
     }
 
 
+# ── SEC: compras y ventas de directivos (formulario 4) ───────────────────────
+def cab_sec():
+    try:
+        with open(SEC_CONTACTO, encoding="utf-8") as f:
+            email = f.read().strip()
+    except OSError:
+        return None
+    return {"User-Agent": f"RadarBolsa {email}"} if "@" in email else None
+
+
+def si(x):
+    return (x or "").strip().lower() in ("1", "true")
+
+
+def form4(cik, acc, doc, cab):
+    """Lee un formulario 4 (cacheado para siempre: un formulario presentado no cambia)."""
+    os.makedirs(f"{CACHE}/form4", exist_ok=True)
+    ruta = f"{CACHE}/form4/{acc}.json"
+    d = leer(ruta)
+    if d is not None and "do" in d:
+        return d
+    crudo = re.sub(r"^xslF345X\d+/", "", doc)       # el XML original, no la versión maquetada
+    xml = pedir(f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}/{crudo}",
+                cab, "text", intentos=2)
+    time.sleep(0.12)                              # la SEC permite 10 consultas/segundo
+    if xml is None:
+        return None
+    try:
+        r = ET.fromstring(xml)
+    except ET.ParseError:
+        return None
+    quien, dir_o_ejec = [], False
+    for o in r.findall("reportingOwner"):
+        rel = o.find("reportingOwnerRelationship")
+        if rel is not None and (si(rel.findtext("isDirector")) or si(rel.findtext("isOfficer"))):
+            dir_o_ejec = True
+        cargo = (rel.findtext("officerTitle") or "").strip() if rel is not None else ""
+        if not cargo and rel is not None:
+            cargo = ("Consejero" if si(rel.findtext("isDirector")) else
+                     "Accionista >10 %" if si(rel.findtext("isTenPercentOwner")) else "")
+        quien.append({"n": (o.findtext("reportingOwnerId/rptOwnerName") or "").strip().title(), "c": cargo})
+    compra = venta = 0.0
+    for t in r.findall("nonDerivativeTable/nonDerivativeTransaction"):
+        cod = t.findtext("transactionCoding/transactionCode")
+        acc_ = num(t.findtext("transactionAmounts/transactionShares/value")) or 0
+        px = num(t.findtext("transactionAmounts/transactionPricePerShare/value")) or 0
+        if cod == "P":                            # compra en el mercado con su dinero
+            compra += acc_ * px
+        elif cod == "S":                          # venta en el mercado
+            venta += acc_ * px
+    # "do": lo presenta un consejero o ejecutivo. Si solo es un accionista >10 % suele
+    # ser un fondo o la propia matriz moviendo acciones: no es un directivo apostando.
+    d = {"q": quien, "c": round(compra), "v": round(venta), "do": dir_o_ejec}
+    guardar(ruta, d)
+    return d
+
+
+def directivos(empresas, dias=90):
+    """Compras/ventas de directivos de los últimos `dias` para las empresas que más
+    interesan (castigadas y top de potencial). Devuelve cuántas se han revisado."""
+    cab = cab_sec()
+    if not cab:
+        log("  SEC: sin contacto en", SEC_CONTACTO, "-> se salta")
+        return 0
+    tick = pedir("https://www.sec.gov/files/company_tickers.json", cab, timeout=60) or {}
+    cik = {v["ticker"].replace(".", "-"): v["cik_str"] for v in tick.values()}
+    desde = (HOY - dt.timedelta(days=dias)).isoformat()
+    obj = [e for e in empresas if e.get("cast")]
+    obj += sorted([e for e in empresas if e.get("sc") is not None and not e.get("cast")], key=lambda e: -e["sc"])[:200]
+    n = 0
+    for e in obj:
+        c = cik.get(e["t"])
+        if not c:
+            continue
+        j = pedir(f"https://data.sec.gov/submissions/CIK{int(c):010d}.json", cab, timeout=40)
+        time.sleep(0.12)
+        if not j:
+            continue
+        n += 1
+        rec = j.get("filings", {}).get("recent", {})
+        e["cik"] = c
+        compras, ventas, compradores, ult = 0.0, 0.0, {}, None
+        for i, forma in enumerate(rec.get("form", [])):
+            if forma != "4" or rec["filingDate"][i] < desde:
+                continue
+            d = form4(c, rec["accessionNumber"][i], rec["primaryDocument"][i], cab)
+            if not d or not d["do"]:
+                continue
+            ventas += d["v"]
+            if d["c"] > 0:
+                compras += d["c"]
+                ult = max(ult or "", rec["filingDate"][i])
+                for q in d["q"]:
+                    compradores[q["n"]] = q["c"]
+        if compras or ventas:
+            e["ins"] = {"c": round(compras), "v": round(ventas), "n": len(compradores), "ult": ult,
+                        "quien": [{"n": a, "c": b} for a, b in list(compradores.items())[:4]]}
+    return n
+
+
 # ── interés (Wikipedia) y noticias (Google News) ─────────────────────────────
 def vistas_wiki(titulo):
     fin = HOY - dt.timedelta(days=1)
@@ -601,10 +703,14 @@ def modo_completo(salida):
             e["cast"] = True
             e["salud"] = salud_castigada(e)
 
+    log("SEC: compras y ventas de directivos (90 días)")
+    n_sec = directivos(empresas)
+    log(f"  revisadas {n_sec}, con compras de directivos: {sum(1 for e in empresas if (e.get('ins') or {}).get('c'))}")
+
     CAMPOS = ["t", "n", "idx", "sector", "tema", "px", "mc", "r1d", "r1m", "r3m", "r6m", "r1a",
               "hi", "dd", "cr", "cr_a", "cr_q", "irreg", "rev", "mb", "mn", "caja", "deuda", "run",
               "wv", "sc", "comp", "cast", "salud", "ipo_fecha", "ipo_px", "ipo_px_aj", "ipo_usd", "bolsa",
-              "ses", "r_ipo", "r_dia1", "grande", "lockup"]
+              "ses", "r_ipo", "r_dia1", "grande", "lockup", "cik", "ins"]
     salida_e = []
     for e in empresas:
         o = {}
@@ -622,7 +728,7 @@ def modo_completo(salida):
     guardar(f"{salida}/empresas.json", {"act": ahora(), "e": salida_e})
     guardar(f"{salida}/hist.json", hist)
     guardar(f"{salida}/resumen.json", {
-        "act": ahora(), "n_total": len(empresas), "n_puntuadas": n_eleg,
+        "act": ahora(), "n_total": len(empresas), "n_puntuadas": n_eleg, "n_sec": n_sec,
         "spy": {k: r4(spy[k]) for k in ("px", "r1d", "r1m", "r3m", "r6m", "r1a", "dd")} if spy else None,
         "spy_hist": {"d0": spy["d0"], "d1": spy["d1"], "w": spy["sem"]} if spy else None,
         "temas": {k: {a: (r4(b) if isinstance(b, float) else b) for a, b in v.items()} for k, v in temas.items()},

@@ -115,6 +115,14 @@ function filaEmp(e, der) {
     <div class="der">${der ?? `<b>${precio(e.px)}</b><span class="${cls(e.r1a)}">${pct(e.r1a)} 1 año</span>`}</div></div>`;
 }
 
+// Compras de directivos (SEC, formulario 4, últimos 90 días)
+const compraDir = e => (e.ins && e.ins.c > 0) ? e.ins : null;
+function chipDir(e) {
+  const i = compraDir(e);
+  if (!i) return '';
+  return `<span class="tag ${i.n >= 2 ? 'ok' : ''}">🏦 ${i.n} directivo${i.n === 1 ? '' : 's'} compr${i.n === 1 ? 'ó' : 'aron'} ${usd(i.c)}</span>`;
+}
+
 function noticiasHTML(lista, vacio = 'Sin noticias recientes.') {
   if (!lista || !lista.length) return `<div class="muted" style="font-size:13px">${vacio}</div>`;
   return lista.map(n => `<a class="noti" href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.ti)}
@@ -169,6 +177,13 @@ function pintarInicio() {
 
     <h3>Próximas salidas a bolsa</h3>
     ${prox.length ? prox.map(ipoProxHTML).join('') : '<div class="card muted">No hay salidas a bolsa anunciadas para las próximas semanas (sin contar SPACs).</div>'}
+
+    ${(() => {
+      const L = S.emp.filter(e => compraDir(e) && e.ins.n >= 2).sort((a, b) => b.ins.c - a.ins.c).slice(0, 5);
+      return L.length ? `<h3>Directivos comprando</h3>
+        <p class="sub">Varios directivos de la misma empresa han comprado acciones con su propio dinero en los últimos 90 días (SEC).</p>
+        ${L.map(e => filaEmp(e, `<b class="up">${usd(e.ins.c)}</b><span class="muted">${e.ins.n} compradores</span>`)).join('')}` : '';
+    })()}
 
     <h3>Castigadas pero sanas</h3>
     <div class="card" data-ir="caidas" style="cursor:pointer"><b style="font-size:22px">${sanas}</b> empresas han caído más de un 30 % desde su máximo pero siguen vendiendo más, ganando dinero y con caja. <span style="color:var(--acc)">Ver →</span></div>
@@ -230,7 +245,9 @@ function pintarIpos() {
   } else {
     cuerpo = `<p class="sub">Empresas que han pedido permiso a la SEC para salir a bolsa. Aún sin fecha ni precio.</p>` +
       (reg.length ? reg.map(x => `<div class="fila" style="cursor:default"><div class="info"><div class="nom">${x.t ? `<span class="tk">${esc(x.t)}</span>` : ''}${esc(x.n)}</div>
-        <div class="det">Registrada ${esc(x.fecha || '')} · ${usd(x.usd)} ${x.spac ? '· SPAC' : ''}</div></div></div>`).join('') : '<div class="vacio">Sin registros recientes.</div>');
+        <div class="det">Registrada ${esc(x.fecha || '')} · ${usd(x.usd)} ${x.spac ? '· SPAC' : ''}</div></div>
+        <a class="btn" style="font-size:12.5px;padding:7px 10px" target="_blank" rel="noopener"
+           href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent('"' + x.n.replace(/[,.]?\s+(Inc|Corp|Ltd|Limited|Holdings)\.?$/i, '') + '"')}&forms=S-1,F-1,S-1%2FA,F-1%2FA">Folleto SEC</a></div>`).join('') : '<div class="vacio">Sin registros recientes.</div>');
   }
   $('#v-ipos').innerHTML = `
     <h2>🚀 Salidas a bolsa</h2>
@@ -258,10 +275,12 @@ function pintarCaidas() {
   const m = S.res.medido.caidas;
   let L = S.emp.filter(e => e.cast);
   const n = { sanas: L.filter(e => (e.salud || []).length >= 3).length, todas: L.length,
-              cayendo: L.filter(e => e.r1m != null && e.r1m <= -0.10).length };
+              cayendo: L.filter(e => e.r1m != null && e.r1m <= -0.10).length,
+              directivos: L.filter(compraDir).length };
   if (S.filtroCaida === 'sanas') L = L.filter(e => (e.salud || []).length >= 3);
   if (S.filtroCaida === 'cayendo') L = L.filter(e => e.r1m != null && e.r1m <= -0.10);
-  L.sort((a, b) => ((b.salud || []).length - (a.salud || []).length) || (a.dd - b.dd));
+  if (S.filtroCaida === 'directivos') L = L.filter(compraDir).sort((a, b) => b.ins.c - a.ins.c);
+  if (S.filtroCaida !== 'directivos') L.sort((a, b) => ((b.salud || []).length - (a.salud || []).length) || (a.dd - b.dd));
   $('#v-caidas').innerHTML = `
     <h2>📉 Castigadas</h2>
     <p class="sub">Empresas del S&P 500, 400 y 600 que están un 30 % o más por debajo de su máximo del último año.</p>
@@ -269,13 +288,14 @@ function pintarCaidas() {
     <div class="chips">
       <button class="chip ${S.filtroCaida === 'sanas' ? 'on' : ''}" data-fcaida="sanas">Sanas · 3-4 señales (${n.sanas})</button>
       <button class="chip ${S.filtroCaida === 'todas' ? 'on' : ''}" data-fcaida="todas">Todas (${n.todas})</button>
+      ${n.directivos ? `<button class="chip ${S.filtroCaida === 'directivos' ? 'on' : ''}" data-fcaida="directivos">🏦 Directivos compran (${n.directivos})</button>` : ''}
       <button class="chip ${S.filtroCaida === 'cayendo' ? 'on' : ''}" data-fcaida="cayendo">Siguen cayendo (${n.cayendo})</button>
     </div>
     ${L.length ? L.slice(0, 120).map(e => `
       <div class="fila" data-t="${esc(e.t)}"><div class="info">
         <div class="nom"><span class="tk">${esc(e.t)}</span>${esc(e.n)}</div>
         <div class="det">${esc(INDICE[e.idx])} · ${esc(e.sector)}</div>
-        <div style="margin-top:5px">${(e.salud || []).map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('')}${e.r1m != null && e.r1m <= -0.10 ? '<span class="tag mal">sigue cayendo</span>' : ''}</div></div>
+        <div style="margin-top:5px">${chipDir(e)}${(e.salud || []).map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('')}${e.r1m != null && e.r1m <= -0.10 ? '<span class="tag mal">sigue cayendo</span>' : ''}</div></div>
         <div class="der"><b class="down">${pct(e.dd, 0)}</b><span class="muted">desde máximo</span></div></div>`).join('') : '<div class="vacio">Nada con este filtro.</div>'}`;
 }
 
@@ -316,6 +336,8 @@ function pintarGuia() {
       <dt>Oferta diminuta</dt><dd>Salidas a bolsa de menos de $25 M. Con tan pocas acciones en circulación, unos pocos pueden mover el precio a su antojo: hay subidas de ×20 que luego se desploman.</dd>
       <dt>Margen bruto</dt><dd>De cada $100 que vende, cuánto le queda tras pagar lo que cuesta fabricar o dar el servicio. Más alto = negocio más fuerte.</dd>
       <dt>Margen neto (beneficio)</dt><dd>De cada $100 que vende, cuánto le queda al final, ya pagado todo. Negativo = pierde dinero.</dd>
+      <dt>Compras de directivos (SEC)</dt><dd>Por ley, los directivos de una empresa tienen que avisar a la SEC (formulario 4) cuando compran o venden sus acciones. Que compren con su propio dinero, y sobre todo que lo hagan varios a la vez, es de las pocas señales con respaldo en estudios: de media, esas empresas lo han hecho algo mejor. No es una garantía. Vender dice poco: lo hacen por impuestos o para diversificar.</dd>
+      <dt>Folleto (S-1)</dt><dd>El documento oficial que una empresa entrega a la SEC antes de salir a bolsa: cuenta su negocio, sus cifras y sus riesgos.</dd>
       <dt>Caja y deuda</dt><dd>El dinero que tiene en el banco frente a lo que debe. Mucha caja y poca deuda = aguanta mejor una mala racha.</dd>
       <dt>Meses de caja</dt><dd>Si pierde dinero, cuánto tiempo puede seguir así antes de quedarse sin caja. Menos de 18 meses = probablemente tendrá que pedir dinero (y eso suele bajar el precio).</dd>
       <dt>Valor en bolsa</dt><dd>Lo que costaría comprar la empresa entera hoy. Pequeña: menos de $2.000 M; mediana: hasta $10.000 M.</dd>
@@ -324,7 +346,7 @@ function pintarGuia() {
       <dt>Puntuación 0-100</dt><dd>Una regla fija que premia vender cada vez más, con buenos márgenes, con caja y en un tema importante. No está probada contra el índice: sirve para elegir qué investigar, no para comprar a ciegas.</dd>
     </dl></div>
     <h3>De dónde salen los datos</h3>
-    <div class="card" style="font-size:14px">Un programa en un servidor revisa el mercado <b>cada 4 horas</b> (calendario y noticias) y hace una pasada completa <b>cada día al cierre</b> de la bolsa: precios y finanzas de ~1.800 empresas (Yahoo Finance), calendario de salidas a bolsa (Nasdaq), interés (Wikipedia) y titulares (Google News).<br><br><b>Esto no es consejo de inversión.</b> Las cifras pueden tener errores de la fuente. Antes de invertir, compruébalas en la web de la empresa.</div>
+    <div class="card" style="font-size:14px">Un programa en un servidor revisa el mercado <b>cada 4 horas</b> (calendario y noticias) y hace una pasada completa <b>cada día al cierre</b> de la bolsa: precios y finanzas de ~1.800 empresas (Yahoo Finance), calendario de salidas a bolsa (Nasdaq), compras y ventas de directivos (SEC), interés (Wikipedia) y titulares (Google News).<br><br><b>Esto no es consejo de inversión.</b> Las cifras pueden tener errores de la fuente. Antes de invertir, compruébalas en la web de la empresa.</div>
     <button class="btn" style="margin-top:14px;width:100%" data-ir="inicio">← Volver</button>`;
 }
 
@@ -409,12 +431,18 @@ function abrirFicha(t) {
       <div class="l"><span>${NOM[k]}</span><b>${v}</b></div><div class="barra"><i style="width:${v}%"></i></div>`).join('')}
       <p class="muted" style="font-size:12px;margin:10px 0 0">Cada barra compara la empresa con las otras ${S.res.n_puntuadas} puntuadas (100 = la mejor). Regla sin probar contra el índice.</p></div>` : ''}
     ${e.cast ? `<h3>Señales de salud tras la caída</h3><div>${(e.salud || []).map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('') || '<span class="tag mal">Ninguna: cuidado, puede ser un negocio en problemas</span>'}</div>` : ''}
+    ${e.ins ? `<h3>Directivos · SEC · 90 días</h3><div class="card">
+      ${e.ins.c > 0 ? `<div style="font-size:15px"><b class="up">${usd(e.ins.c)}</b> comprados con su propio dinero por <b>${e.ins.n}</b> directivo${e.ins.n === 1 ? '' : 's'}${e.ins.ult ? ` (último: ${fechaCorta(e.ins.ult)})` : ''}.</div>
+        <div style="margin-top:8px">${e.ins.quien.map(q => `<span class="tag">${esc(q.n)}${q.c ? ' · ' + esc(q.c) : ''}</span>`).join('')}</div>`
+        : '<div style="font-size:15px">Ningún directivo ha comprado en el mercado.</div>'}
+      ${e.ins.v > 0 ? `<div class="muted" style="font-size:13px;margin-top:8px">Ventas de directivos: ${usd(e.ins.v)}. Vender es normal (impuestos, diversificar) y dice poco; comprar con su dinero dice más.</div>` : ''}
+      </div>` : ''}
     <h3>Las cifras</h3><div class="met">${met.map(([a, b, c]) => `<div><span class="et">${a}</span><b>${b}</b><em>${c}</em></div>`).join('')}</div>
     <h3>Noticias</h3><div class="card">${noticiasHTML(notis, 'No hay titulares guardados de esta empresa.')}</div>
     <div class="enlaces">
       <a class="btn pri" href="https://finance.yahoo.com/quote/${esc(e.t)}" target="_blank" rel="noopener">Yahoo Finance</a>
       <a class="btn" href="https://news.google.com/search?q=${qn}" target="_blank" rel="noopener">Más noticias</a>
-      <a class="btn" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${esc(e.t)}&type=10-K" target="_blank" rel="noopener">Informes SEC</a>
+      <a class="btn" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${esc(e.cik || e.t)}&owner=include" target="_blank" rel="noopener">Informes SEC</a>
     </div>
     <p class="pie">Información, no consejo de inversión.</p>`;
   $('#velo').classList.add('on'); $('#hoja').classList.add('on'); $('#hoja').scrollTop = 0;

@@ -19,7 +19,7 @@ VPS (cron) ── colector/colector.py ──► data/*.json ──git push─�
 - `colector/colector.py rapido` — cada 4 horas: calendario de Nasdaq y titulares de Google News.
 - `colector/actualizar.sh` — lo lanza el cron, ejecuta el colector con prioridad mínima (comparte máquina con los bots de trading) y publica `data/`.
 
-Fuentes públicas, sin claves. La SEC exige un email real en cada consulta, por eso las finanzas salen de Yahoo.
+Fuentes públicas, sin claves. Las finanzas salen de Yahoo; de la SEC salen las compras y ventas de directivos (formulario 4). La SEC exige un email real de contacto: vive en `/root/radar_bolsa/sec_contacto.txt` en el VPS, fuera de este repo público.
 
 ## Honestidad
 
