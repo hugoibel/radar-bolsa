@@ -12,6 +12,11 @@ const S = { res: null, emp: [], ipos: null, not: null, hist: null, porT: {}, vis
 const PRECIOS_API = new URLSearchParams(location.search).get('api')   // solo para probar en local
   || 'https://radar-bolsa-precios.citemeai.workers.dev/precios';
 const VIVO = { ts: 0, abierto: false, timer: null, fallos: 0 };
+// Canal en vivo (2026-10-04): el mismo WebSocket que usa la web de Yahoo Finance. Empuja
+// cada cambio de precio al momento (~1 s). No es oficial: si falla o lo cambian, la app
+// vuelve sola a preguntar al Worker cada 30 s.
+const STREAM_URL = 'wss://streamer.finance.yahoo.com/?version=2';
+const STREAM = { ws: null, subs: new Set(), ultimo: 0, intentos: 0, sesion: null };
 
 // ── utilidades ───────────────────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
@@ -90,6 +95,7 @@ async function iniciar() {
   const v = (location.hash || '').slice(1);
   ir(['inicio', 'ipos', 'potencial', 'caidas', 'buscar', 'guia'].includes(v) ? v : 'inicio', false);
   actualizarEnVivo();
+  conectarStream();
 }
 
 function pintarTodo() {
@@ -103,6 +109,7 @@ function ir(v, hist = true) {
   if (hist) history.replaceState(null, '', '#' + v);
   window.scrollTo({ top: 0 });
   if (VIVO.ts) actualizarEnVivo();          // precios en vivo de lo que ahora hay en pantalla
+  suscribirStream();
 }
 
 // ── piezas comunes ───────────────────────────────────────────────────────────
@@ -120,7 +127,7 @@ function filaEmp(e, der) {
   const izq = e.sc != null ? anillo(e.sc) : '';
   return `<div class="fila" data-t="${esc(e.t)}">${izq}
     <div class="info"><div class="nom"><span class="tk">${esc(e.t)}</span>${esc(e.n)}</div>
-    <div class="det">${esc(e.tema !== 'otros' ? temaCorto(e.tema) : e.sector)} · ${usd(e.mc)}</div></div>
+    <div class="det">${der != null ? `<span data-vp="${esc(e.t)}">${precio(e.px)}</span> · ` : ''}${esc(e.tema !== 'otros' ? temaCorto(e.tema) : e.sector)} · ${usd(e.mc)}</div></div>
     <div class="der">${der ?? `<b data-vp="${esc(e.t)}">${precio(e.px)}</b><span class="${cls(e.r1d)}" data-vc="${esc(e.t)}">${pct(e.r1d, 2)} hoy</span>`}</div></div>`;
 }
 
@@ -303,7 +310,7 @@ function pintarCaidas() {
     ${L.length ? L.slice(0, 120).map(e => `
       <div class="fila" data-t="${esc(e.t)}"><div class="info">
         <div class="nom"><span class="tk">${esc(e.t)}</span>${esc(e.n)}</div>
-        <div class="det">${esc(INDICE[e.idx])} · ${esc(e.sector)}</div>
+        <div class="det"><span data-vp="${esc(e.t)}">${precio(e.px)}</span> · ${esc(INDICE[e.idx])} · ${esc(e.sector)}</div>
         <div style="margin-top:5px">${chipDir(e)}${(e.salud || []).map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('')}${e.r1m != null && e.r1m <= -0.10 ? '<span class="tag mal">sigue cayendo</span>' : ''}</div></div>
         <div class="der"><b class="down">${pct(e.dd, 0)}</b><span class="muted">desde máximo</span></div></div>`).join('') : '<div class="vacio">Nada con este filtro.</div>'}`;
 }
@@ -456,6 +463,7 @@ function abrirFicha(t) {
     <p class="pie">Información, no consejo de inversión.</p>`;
   $('#velo').classList.add('on'); $('#hoja').classList.add('on'); $('#hoja').scrollTop = 0;
   if (VIVO.ts) actualizarEnVivo();
+  suscribirStream();
   $('#cerrar').onclick = cerrarFicha;
   $('#fav').onclick = () => {
     favs.has(e.t) ? favs.delete(e.t) : favs.add(e.t);
@@ -497,12 +505,72 @@ function pintarVivo(t, d) {
 function estadoVivo() {
   const el = document.getElementById('vivo');
   if (!el) return;
+  const streaming = STREAM.ultimo && Date.now() - STREAM.ultimo < 60000;
+  if (streaming) {
+    const extra = STREAM.sesion === 0 ? ' · antes de la apertura' : STREAM.sesion === 2 ? ' · después del cierre' : '';
+    el.style.color = 'var(--up)';
+    el.innerHTML = `<span class="punto"></span> En vivo al segundo${extra}`;
+    return;
+  }
   if (!VIVO.ts) { el.textContent = ''; return; }
   const s = Math.round((Date.now() - VIVO.ts) / 1000);
   el.style.color = VIVO.abierto ? 'var(--up)' : 'var(--txt3)';
   el.innerHTML = VIVO.abierto
     ? `<span class="punto"></span> En vivo · ${s < 60 ? `hace ${s} s` : hace(new Date(VIVO.ts).toISOString().slice(0, 16) + 'Z')}`
     : '· Bolsa cerrada: último precio';
+}
+
+// Descifrador mínimo del mensaje protobuf "PricingData" del canal de Yahoo (sin librerías).
+function decodificarYahoo(b64) {
+  const bin = atob(b64), u = new Uint8Array(bin.length);
+  for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+  const dv = new DataView(u.buffer); let i = 0; const o = {};
+  const varint = () => { let r = 0n, s = 0n, b; do { b = u[i++]; r |= BigInt(b & 0x7f) << s; s += 7n; } while (b & 0x80 && i < u.length); return r; };
+  const zigzag = v => Number((v >> 1n) ^ -(v & 1n));
+  const CAMPOS = { 1: 'id', 2: 'precio', 3: 'hora', 7: 'sesion', 8: 'cambio_pct' };
+  while (i < u.length) {
+    const k = Number(varint()), campo = k >> 3, tipo = k & 7, nom = CAMPOS[campo];
+    if (tipo === 0) { const v = varint(); if (nom) o[nom] = campo === 3 ? zigzag(v) : Number(v); }
+    else if (tipo === 5) { if (nom) o[nom] = dv.getFloat32(i, true); i += 4; }
+    else if (tipo === 1) i += 8;
+    else if (tipo === 2) { const n = Number(varint()); if (nom) o[nom] = new TextDecoder().decode(u.subarray(i, i + n)); i += n; }
+    else break;
+  }
+  return o;
+}
+
+function conectarStream() {
+  if (document.hidden || (STREAM.ws && STREAM.ws.readyState <= 1)) return;
+  let ws;
+  try { ws = new WebSocket(STREAM_URL); } catch { return; }
+  STREAM.ws = ws;
+  ws.onopen = () => { STREAM.intentos = 0; STREAM.subs = new Set(); suscribirStream(); };
+  ws.onmessage = ev => {
+    try {
+      const m = JSON.parse(ev.data);
+      if (m.type !== 'pricing') return;
+      const d = decodificarYahoo(m.message);
+      if (!d.id || !d.precio) return;
+      STREAM.ultimo = Date.now(); STREAM.sesion = d.sesion ?? null;
+      pintarVivo(d.id, { p: Math.round(d.precio * 10000) / 10000, ch: d.cambio_pct != null ? d.cambio_pct / 100 : null });
+    } catch { /* mensaje raro: se ignora */ }
+  };
+  ws.onclose = () => {
+    if (STREAM.ws === ws) STREAM.ws = null;
+    if (!document.hidden) setTimeout(conectarStream, Math.min(60000, 2000 * 2 ** STREAM.intentos++));
+  };
+  ws.onerror = () => { try { ws.close(); } catch { /* ya cerrado */ } };
+}
+
+function suscribirStream() {
+  const ws = STREAM.ws;
+  if (!ws || ws.readyState !== 1) return;
+  const quiero = new Set(tickersEnPantalla());
+  const alta = [...quiero].filter(t => !STREAM.subs.has(t));
+  const baja = [...STREAM.subs].filter(t => !quiero.has(t));
+  if (baja.length) ws.send(JSON.stringify({ unsubscribe: baja }));
+  if (alta.length) ws.send(JSON.stringify({ subscribe: alta }));
+  STREAM.subs = quiero;
 }
 
 async function actualizarEnVivo() {
@@ -524,11 +592,22 @@ async function actualizarEnVivo() {
     VIVO.fallos++;                                           // sin conexion o Worker caido: datos del dia
   }
   estadoVivo();
-  const espera = VIVO.fallos ? Math.min(300000, 30000 * VIVO.fallos) : (VIVO.abierto ? 30000 : 300000);
+  suscribirStream();
+  // con el canal en vivo funcionando, el Worker solo hace de foto de respaldo cada 5 min
+  const streaming = STREAM.ultimo && Date.now() - STREAM.ultimo < 60000;
+  const espera = VIVO.fallos ? Math.min(300000, 30000 * VIVO.fallos)
+    : (streaming || !VIVO.abierto ? 300000 : 30000);
   VIVO.timer = setTimeout(actualizarEnVivo, espera);
 }
 setInterval(estadoVivo, 5000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) actualizarEnVivo(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {                                    // en segundo plano: cerrar (bateria y datos)
+    if (STREAM.ws) { const ws = STREAM.ws; STREAM.ws = null; try { ws.close(); } catch { /* nada */ } }
+  } else {
+    actualizarEnVivo();
+    conectarStream();
+  }
+});
 
 // ── eventos (delegados) ──────────────────────────────────────────────────────
 document.addEventListener('click', ev => {
