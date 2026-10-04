@@ -6,6 +6,13 @@
 const S = { res: null, emp: [], ipos: null, not: null, hist: null, porT: {}, vista: 'inicio',
             filtroTema: 'todos', filtroCaida: 'sanas', filtroIpo: 'proximas', q: '' };
 
+// Precios en vivo (2026-10-04): Cloudflare Worker que hace de puente con Yahoo, porque el
+// navegador no puede leer Yahoo directamente (CORS). Si falla, la app sigue con los datos
+// del día. Solo se piden los tickers que hay en pantalla.
+const PRECIOS_API = new URLSearchParams(location.search).get('api')   // solo para probar en local
+  || 'https://radar-bolsa-precios.citemeai.workers.dev/precios';
+const VIVO = { ts: 0, abierto: false, timer: null, fallos: 0 };
+
 // ── utilidades ───────────────────────────────────────────────────────────────
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -82,6 +89,7 @@ async function iniciar() {
   pintarTodo();
   const v = (location.hash || '').slice(1);
   ir(['inicio', 'ipos', 'potencial', 'caidas', 'buscar', 'guia'].includes(v) ? v : 'inicio', false);
+  actualizarEnVivo();
 }
 
 function pintarTodo() {
@@ -94,6 +102,7 @@ function ir(v, hist = true) {
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   if (hist) history.replaceState(null, '', '#' + v);
   window.scrollTo({ top: 0 });
+  if (VIVO.ts) actualizarEnVivo();          // precios en vivo de lo que ahora hay en pantalla
 }
 
 // ── piezas comunes ───────────────────────────────────────────────────────────
@@ -112,7 +121,7 @@ function filaEmp(e, der) {
   return `<div class="fila" data-t="${esc(e.t)}">${izq}
     <div class="info"><div class="nom"><span class="tk">${esc(e.t)}</span>${esc(e.n)}</div>
     <div class="det">${esc(e.tema !== 'otros' ? temaCorto(e.tema) : e.sector)} · ${usd(e.mc)}</div></div>
-    <div class="der">${der ?? `<b>${precio(e.px)}</b><span class="${cls(e.r1a)}">${pct(e.r1a)} 1 año</span>`}</div></div>`;
+    <div class="der">${der ?? `<b data-vp="${esc(e.t)}">${precio(e.px)}</b><span class="${cls(e.r1d)}" data-vc="${esc(e.t)}">${pct(e.r1d, 2)} hoy</span>`}</div></div>`;
 }
 
 // Compras de directivos (SEC, formulario 4, últimos 90 días)
@@ -144,10 +153,10 @@ function pintarInicio() {
       <div class="cifra ${cls(spy.r1a)}">${pct(spy.r1a)}</div>
       <div class="lbl">en el último año</div>
       <div class="kpis">
-        <div class="kpi"><b class="${cls(spy.r1d)}">${pct(spy.r1d, 2)}</b><span>hoy</span></div>
+        <div class="kpi"><b class="${cls(spy.r1d)}" data-vc="SPY">${pct(spy.r1d, 2)}</b><span>hoy</span></div>
         <div class="kpi"><b class="${cls(spy.r1m)}">${pct(spy.r1m)}</b><span>1 mes</span></div>
         <div class="kpi"><b class="${cls(spy.r6m)}">${pct(spy.r6m)}</b><span>6 meses</span></div>
-        <div class="kpi"><b>${precio(spy.px)}</b><span>precio SPY</span></div>
+        <div class="kpi"><b data-vp="SPY">${precio(spy.px)}</b><span>precio SPY</span></div>
       </div>
     </div>
 
@@ -419,7 +428,7 @@ function abrirFicha(t) {
       <button class="estrella" id="fav" aria-label="Favorita">${fav ? '⭐' : '☆'}</button>
       <button class="icobtn" id="cerrar" aria-label="Cerrar">✕</button></div>
     <div class="muted" style="font-size:13px;margin-top:4px">${esc(INDICE[e.idx])} · ${esc(e.sector)}${e.tema !== 'otros' ? ' · ' + esc(temaTxt(e.tema)) : ''}</div>
-    <div class="precio">${precio(e.px)} <span class="${cls(e.r1d)}" style="font-size:15px">${pct(e.r1d, 2)} hoy</span></div>
+    <div class="precio"><span data-vp="${esc(e.t)}">${precio(e.px)}</span> <span class="${cls(e.r1d)}" style="font-size:15px" data-vc="${esc(e.t)}">${pct(e.r1d, 2)} hoy</span></div>
     <div class="kpis" style="margin-top:2px">
       <div class="kpi"><b class="${cls(e.r1m)}">${pct(e.r1m)}</b><span>1 mes</span></div>
       <div class="kpi"><b class="${cls(e.r6m)}">${pct(e.r6m)}</b><span>6 meses</span></div>
@@ -446,6 +455,7 @@ function abrirFicha(t) {
     </div>
     <p class="pie">Información, no consejo de inversión.</p>`;
   $('#velo').classList.add('on'); $('#hoja').classList.add('on'); $('#hoja').scrollTop = 0;
+  if (VIVO.ts) actualizarEnVivo();
   $('#cerrar').onclick = cerrarFicha;
   $('#fav').onclick = () => {
     favs.has(e.t) ? favs.delete(e.t) : favs.add(e.t);
@@ -456,6 +466,69 @@ function abrirFicha(t) {
   grafica(e.t);
 }
 function cerrarFicha() { $('#velo').classList.remove('on'); $('#hoja').classList.remove('on'); }
+
+// ── PRECIOS EN VIVO ──────────────────────────────────────────────────────────
+function tickersEnPantalla() {
+  const vista = document.getElementById('v-' + S.vista);
+  const set = new Set(['SPY']);
+  document.querySelectorAll('#hoja [data-vp]').forEach(n => set.add(n.dataset.vp));        // ficha abierta
+  if (vista) vista.querySelectorAll('[data-vp]').forEach(n => set.add(n.dataset.vp));
+  return [...set].filter(t => /^[A-Z][A-Z.\-]{0,9}$/.test(t)).slice(0, 50);
+}
+
+function pintarVivo(t, d) {
+  const e = S.porT[t];
+  const subio = e && e.px != null && d.p > e.px, bajo = e && e.px != null && d.p < e.px;
+  if (e) { e.px = d.p; if (d.ch != null) e.r1d = d.ch; }
+  if (t === 'SPY' && S.res?.spy) { S.res.spy.px = d.p; if (d.ch != null) S.res.spy.r1d = d.ch; }
+  document.querySelectorAll(`[data-vp="${t}"]`).forEach(n => {
+    n.textContent = precio(d.p);
+    if (subio || bajo) {
+      n.classList.remove('flash-up', 'flash-down'); void n.offsetWidth;
+      n.classList.add(subio ? 'flash-up' : 'flash-down');
+    }
+  });
+  if (d.ch != null) document.querySelectorAll(`[data-vc="${t}"]`).forEach(n => {
+    n.textContent = pct(d.ch, 2) + (n.closest('.kpi') ? '' : ' hoy');   // en la cabecera del SPY ya pone "hoy" debajo
+    n.classList.remove('up', 'down', 'muted'); n.classList.add(cls(d.ch));
+  });
+}
+
+function estadoVivo() {
+  const el = document.getElementById('vivo');
+  if (!el) return;
+  if (!VIVO.ts) { el.textContent = ''; return; }
+  const s = Math.round((Date.now() - VIVO.ts) / 1000);
+  el.style.color = VIVO.abierto ? 'var(--up)' : 'var(--txt3)';
+  el.innerHTML = VIVO.abierto
+    ? `<span class="punto"></span> En vivo · ${s < 60 ? `hace ${s} s` : hace(new Date(VIVO.ts).toISOString().slice(0, 16) + 'Z')}`
+    : '· Bolsa cerrada: último precio';
+}
+
+async function actualizarEnVivo() {
+  clearTimeout(VIVO.timer);
+  if (document.hidden) { VIVO.timer = setTimeout(actualizarEnVivo, 30000); return; }
+  const tks = tickersEnPantalla();
+  try {
+    const r = await fetch(`${PRECIOS_API}?t=${tks.join(',')}`);
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    const ahora = Date.now() / 1000;
+    let abierto = false;
+    for (const [t, d] of Object.entries(j.precios || {})) {
+      pintarVivo(t, d);
+      if (d.ts && ahora - d.ts < 15 * 60) abierto = true;   // ha cotizado en los ultimos 15 min
+    }
+    VIVO.ts = Date.now(); VIVO.abierto = abierto; VIVO.fallos = 0;
+  } catch (err) {
+    VIVO.fallos++;                                           // sin conexion o Worker caido: datos del dia
+  }
+  estadoVivo();
+  const espera = VIVO.fallos ? Math.min(300000, 30000 * VIVO.fallos) : (VIVO.abierto ? 30000 : 300000);
+  VIVO.timer = setTimeout(actualizarEnVivo, espera);
+}
+setInterval(estadoVivo, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) actualizarEnVivo(); });
 
 // ── eventos (delegados) ──────────────────────────────────────────────────────
 document.addEventListener('click', ev => {

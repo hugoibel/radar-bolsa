@@ -227,6 +227,18 @@ h3 { font-size: 15px; margin: 22px 0 10px; color: var(--txt2); text-transform: u
 .nav button.on { color: var(--acc); }
 .nav button.on .i { filter: none; }
 
+/* ── precios en vivo ── */
+#vivo { color: var(--up); font-size: 12px; white-space: nowrap; }
+.punto {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--up);
+  vertical-align: middle; margin-right: 2px; animation: late 1.6s ease-in-out infinite;
+}
+@keyframes late { 50% { opacity: .25; } }
+.flash-up { animation: flashUp 1.2s ease; }
+.flash-down { animation: flashDown 1.2s ease; }
+@keyframes flashUp { 0% { background: color-mix(in srgb, var(--up) 35%, transparent); } 100% { background: transparent; } }
+@keyframes flashDown { 0% { background: color-mix(in srgb, var(--down) 35%, transparent); } 100% { background: transparent; } }
+
 /* ── varios ── */
 .vacio { text-align: center; color: var(--txt3); padding: 30px 10px; }
 .cargando { display: grid; place-items: center; min-height: 50vh; color: var(--txt3); gap: 10px; }
