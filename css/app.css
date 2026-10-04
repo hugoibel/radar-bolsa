@@ -1,0 +1,248 @@
+/* Radar Bolsa — estilos. Oscuro por defecto, claro si el sistema lo pide. */
+:root {
+  --bg: #0b0f14;
+  --bg2: #111821;
+  --card: #151e29;
+  --card2: #1b2633;
+  --line: #243243;
+  --txt: #e8eef5;
+  --txt2: #9fb0c3;
+  --txt3: #6c7f94;
+  --acc: #4cc3ff;
+  --acc2: #8b7bff;
+  --up: #2fd480;
+  --down: #ff5d6c;
+  --warn: #ffb547;
+  --chip: #1e2b3a;
+  --sombra: 0 6px 24px rgba(0, 0, 0, .35);
+  --r: 16px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f6fa; --bg2: #e9eef5; --card: #ffffff; --card2: #f4f7fb; --line: #dbe3ec;
+    --txt: #0f1b2a; --txt2: #4a5d73; --txt3: #7b8ca0; --acc: #0a84d6; --acc2: #6a5af9;
+    --up: #0f9d58; --down: #e0334a; --warn: #c77700; --chip: #eaf0f7;
+    --sombra: 0 6px 20px rgba(15, 27, 42, .08);
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  min-height: 100vh;
+}
+button { font: inherit; color: inherit; }
+a { color: var(--acc); text-decoration: none; }
+
+/* ── cabecera ── */
+.top {
+  position: sticky; top: 0; z-index: 20;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 10px;
+}
+.logo { width: 34px; height: 34px; border-radius: 10px; flex: none; }
+.marca { flex: 1; min-width: 0; }
+.marca b { display: block; font-size: 17px; letter-spacing: .2px; }
+.marca small { color: var(--txt3); font-size: 12px; }
+.icobtn {
+  width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); display: grid; place-items: center; cursor: pointer; font-size: 17px;
+}
+
+main { max-width: 860px; margin: 0 auto; padding: 14px 16px 24px; }
+.vista { display: none; animation: entra .25s ease; }
+.vista.on { display: block; }
+@keyframes entra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+h2 { font-size: 21px; margin: 6px 0 4px; letter-spacing: -.2px; }
+h3 { font-size: 15px; margin: 22px 0 10px; color: var(--txt2); text-transform: uppercase; letter-spacing: .8px; font-weight: 650; }
+.sub { color: var(--txt2); margin: 0 0 12px; font-size: 14px; }
+
+/* ── tarjetas ── */
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 14px; box-shadow: var(--sombra);
+}
+.card + .card { margin-top: 10px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 520px) { .grid3 { grid-template-columns: 1fr 1fr; } }
+
+.hero {
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--acc2) 26%, transparent), transparent 60%),
+    radial-gradient(120% 140% at 0% 100%, color-mix(in srgb, var(--acc) 22%, transparent), transparent 60%),
+    var(--card);
+  border: 1px solid var(--line); border-radius: 20px; padding: 18px; box-shadow: var(--sombra);
+}
+.hero .cifra { font-size: 34px; font-weight: 750; letter-spacing: -1px; line-height: 1.1; }
+.hero .lbl { color: var(--txt2); font-size: 13px; }
+.kpis { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; }
+.kpi b { display: block; font-size: 17px; }
+.kpi span { color: var(--txt3); font-size: 12px; }
+
+.up { color: var(--up); }
+.down { color: var(--down); }
+.warn { color: var(--warn); }
+.muted { color: var(--txt3); }
+
+/* ── aviso honesto ── */
+.aviso {
+  border-radius: 14px; padding: 12px 14px; font-size: 13.5px; line-height: 1.45;
+  background: color-mix(in srgb, var(--warn) 12%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  margin: 4px 0 14px;
+}
+.aviso b { color: var(--warn); }
+
+/* ── chips y filtros ── */
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none; padding: 7px 12px; border-radius: 999px; background: var(--chip);
+  border: 1px solid var(--line); font-size: 13px; cursor: pointer; white-space: nowrap; color: var(--txt2);
+}
+.chip.on { background: var(--acc); border-color: var(--acc); color: #04121c; font-weight: 650; }
+.tag {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px;
+  background: var(--chip); color: var(--txt2); border: 1px solid var(--line); margin: 2px 4px 2px 0;
+}
+.tag.ok { color: var(--up); border-color: color-mix(in srgb, var(--up) 40%, var(--line)); }
+.tag.mal { color: var(--down); border-color: color-mix(in srgb, var(--down) 40%, var(--line)); }
+.tag.ojo { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+
+/* ── filas de empresa ── */
+.fila {
+  display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px;
+  background: var(--card); border: 1px solid var(--line); cursor: pointer; transition: transform .12s, border-color .12s;
+}
+.fila + .fila { margin-top: 8px; }
+.fila:active { transform: scale(.985); }
+.fila:hover { border-color: color-mix(in srgb, var(--acc) 45%, var(--line)); }
+.fila .info { flex: 1; min-width: 0; }
+.fila .nom { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fila .det { color: var(--txt3); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fila .der { text-align: right; flex: none; }
+.fila .der b { display: block; font-size: 15px; }
+.fila .der span { font-size: 12px; }
+.tk {
+  font: 700 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .3px;
+  padding: 3px 6px; border-radius: 6px; background: var(--chip); color: var(--acc); margin-right: 6px;
+}
+
+/* anillo de puntuación */
+.anillo { width: 46px; height: 46px; flex: none; position: relative; }
+.anillo svg { width: 46px; height: 46px; transform: rotate(-90deg); }
+.anillo b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; }
+
+/* ── temas ── */
+.tema {
+  border-radius: 16px; padding: 14px; background: var(--card); border: 1px solid var(--line); cursor: pointer;
+}
+.tema .ico { font-size: 22px; }
+.tema .tn { font-weight: 650; margin: 4px 0 6px; font-size: 14px; line-height: 1.25; min-height: 36px; }
+.tema .tl { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--txt2); }
+.barra { height: 6px; border-radius: 6px; background: var(--chip); overflow: hidden; margin-top: 8px; }
+.barra i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--acc), var(--acc2)); }
+
+/* ── IPO ── */
+.ipo { padding: 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); cursor: pointer; }
+.ipo + .ipo { margin-top: 10px; }
+.ipo .cab { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.ipo .fecha { text-align: center; flex: none; background: var(--chip); border-radius: 12px; padding: 6px 10px; }
+.ipo .fecha b { display: block; font-size: 18px; line-height: 1; }
+.ipo .fecha span { font-size: 11px; color: var(--txt3); text-transform: uppercase; }
+.ipo .stat { margin-top: 10px; font-size: 13px; color: var(--txt2); }
+.fase { margin-top: 10px; height: 8px; border-radius: 8px; background: var(--chip); position: relative; }
+.fase i { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 8px; background: linear-gradient(90deg, var(--down), var(--warn)); }
+.fase u { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--txt); text-decoration: none; }
+.fase-l { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--txt3); margin-top: 6px; }
+
+/* ── noticias ── */
+.noti { display: block; padding: 11px 0; border-bottom: 1px solid var(--line); color: var(--txt); }
+.noti:last-child { border-bottom: 0; }
+.noti small { display: block; color: var(--txt3); font-size: 12px; margin-top: 2px; }
+
+/* ── buscador ── */
+.buscar {
+  width: 100%; padding: 13px 14px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--card); color: var(--txt); font-size: 16px; outline: none;
+}
+.buscar:focus { border-color: var(--acc); }
+
+/* ── ficha (hoja inferior) ── */
+.velo { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); z-index: 40; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.velo.on { opacity: 1; pointer-events: auto; }
+.hoja {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; max-height: 92vh; overflow-y: auto;
+  background: var(--bg2); border-radius: 22px 22px 0 0; border-top: 1px solid var(--line);
+  transform: translateY(100%); transition: transform .28s cubic-bezier(.2, .8, .2, 1);
+  padding: 8px 16px calc(24px + env(safe-area-inset-bottom)); max-width: 860px; margin: 0 auto;
+}
+.hoja.on { transform: none; }
+.asa { width: 42px; height: 5px; border-radius: 5px; background: var(--line); margin: 4px auto 10px; }
+.hoja .titulo { display: flex; gap: 10px; align-items: flex-start; }
+.hoja .titulo h2 { flex: 1; margin: 0; font-size: 20px; }
+.precio { font-size: 30px; font-weight: 750; letter-spacing: -.8px; margin-top: 6px; }
+.grafica { width: 100%; height: 180px; display: block; margin: 8px 0 2px; }
+.leyenda { display: flex; gap: 14px; font-size: 12px; color: var(--txt3); }
+.leyenda i { display: inline-block; width: 10px; height: 3px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.met { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.met div { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+.met b { display: block; font-size: 16px; }
+.met span { display: block; font-size: 12px; color: var(--txt2); }
+.met em { display: block; font-style: normal; font-size: 11.5px; color: var(--txt3); margin-top: 3px; line-height: 1.35; }
+.comp { margin-top: 6px; }
+.comp .l { display: flex; justify-content: space-between; font-size: 13px; margin-top: 8px; }
+.enlaces { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.btn {
+  padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card);
+  cursor: pointer; font-size: 14px; color: var(--txt);
+}
+.btn.pri { background: var(--acc); border-color: var(--acc); color: #04121c; font-weight: 650; }
+.estrella { font-size: 22px; background: none; border: 0; cursor: pointer; padding: 4px; }
+
+/* ── navegación inferior ── */
+.nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  background: color-mix(in srgb, var(--bg2) 92%, transparent);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+.nav button {
+  background: none; border: 0; cursor: pointer; padding: 6px 2px; border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--txt3); font-size: 11px;
+}
+.nav button .i { font-size: 20px; line-height: 1; filter: grayscale(1) opacity(.75); }
+.nav button.on { color: var(--acc); }
+.nav button.on .i { filter: none; }
+
+/* ── varios ── */
+.vacio { text-align: center; color: var(--txt3); padding: 30px 10px; }
+.cargando { display: grid; place-items: center; min-height: 50vh; color: var(--txt3); gap: 10px; }
+.radar { width: 54px; height: 54px; border-radius: 50%; border: 2px solid var(--line); position: relative; overflow: hidden; }
+.radar::after {
+  content: ""; position: absolute; inset: 0;
+  background: conic-gradient(from 0deg, transparent 0 300deg, color-mix(in srgb, var(--acc) 70%, transparent));
+  animation: gira 1.4s linear infinite;
+}
+@keyframes gira { to { transform: rotate(360deg); } }
+.instalar {
+  display: none; margin: 0 0 14px; padding: 12px 14px; border-radius: 14px; font-size: 13.5px;
+  background: color-mix(in srgb, var(--acc) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--acc) 35%, var(--line));
+}
+.instalar.on { display: flex; gap: 10px; align-items: center; }
+.instalar span { flex: 1; }
+.glos dt { font-weight: 650; margin-top: 12px; }
+.glos dd { margin: 3px 0 0; color: var(--txt2); font-size: 14px; }
+.pie { color: var(--txt3); font-size: 12px; text-align: center; margin-top: 26px; line-height: 1.5; }
