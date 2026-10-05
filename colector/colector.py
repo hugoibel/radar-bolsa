@@ -15,6 +15,7 @@ import bisect
 import datetime as dt
 import html
 import json
+import math
 import os
 import re
 import statistics as st
@@ -24,7 +25,9 @@ import xml.etree.ElementTree as ET
 
 import requests
 
-CACHE = "/root/radar-bolsa-cache"
+# Para probar en el PC antes de desplegar: RB_CACHE y RB_SEC cambian las rutas del VPS y
+# RB_MAX=80 recorre solo ~80 valores (pasada completa de punta a punta en pocos minutos).
+CACHE = os.environ.get("RB_CACHE", "/root/radar-bolsa-cache")
 NAV = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
        "Accept": "application/json, text/plain, */*"}
@@ -32,7 +35,7 @@ NAV = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
 BOT = {"User-Agent": "RadarBolsa/1.0 (+https://hugoibel.github.io/radar-bolsa/)"}
 # La SEC exige además un email REAL de contacto (con uno anónimo responde 403). Vive
 # en un archivo del VPS, fuera del repo público; sin él se salta la parte de la SEC.
-SEC_CONTACTO = "/root/radar_bolsa/sec_contacto.txt"
+SEC_CONTACTO = os.environ.get("RB_SEC", "/root/radar_bolsa/sec_contacto.txt")
 
 HOY = dt.date.today()
 SES = requests.Session()
@@ -70,15 +73,14 @@ SECTOR_ES = {
 # Temas "importantes para el mundo". Se asignan por sub-industria GICS (listas S&P),
 # por la industria de Yahoo (salidas a bolsa) y, en último caso, por el nombre.
 TEMAS = {
-    "ia": {"nombre": "IA y chips", "ico": "🤖",
-           "gics": ["Semiconductors", "Semiconductor Materials & Equipment", "Systems Software",
-                    "Application Software", "Internet Services & Infrastructure",
+    # 2026-10-05: el software YA NO cuenta como IA (metía a Duolingo o a programas de
+    # contabilidad). Solo chips, hardware, redes y centros de datos, o "AI" en el nombre.
+    "ia": {"nombre": "IA, chips y centros de datos", "ico": "🤖",
+           "gics": ["Semiconductors", "Semiconductor Materials & Equipment", "Internet Services & Infrastructure",
                     "Technology Hardware, Storage & Peripherals", "Electronic Components",
-                    "Electronic Equipment & Instruments", "Communications Equipment",
-                    "Electronic Manufacturing Services"],
-           "yind": ["semiconductor", "software", "computer hardware", "information technology",
-                    "electronic components", "scientific & technical instruments", "communication equipment"],
-           "nombre_kw": ["quantum", "semiconductor", "artificial intelligence", " ai ", "data center", "robot"],
+                    "Communications Equipment", "Electronic Manufacturing Services"],
+           "yind": ["semiconductor", "computer hardware", "electronic components", "communication equipment"],
+           "nombre_kw": ["quantum", "semiconductor", "artificial intelligence", "data center", "robot"],
            "wiki": ["Artificial intelligence", "Large language model", "Data center", "Quantum computing"],
            "news": "AI stocks"},
     "energia": {"nombre": "Energía y red eléctrica", "ico": "⚡",
@@ -302,7 +304,8 @@ def fundamentales(t):
     if not CRUMB["v"]:
         crumb()
     url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{t}"
-           f"?modules=financialData,price,summaryProfile,earnings&crumb={CRUMB['v']}")
+           f"?modules=financialData,price,summaryProfile,earnings,summaryDetail,defaultKeyStatistics"
+           f"&crumb={CRUMB['v']}")
     j = pedir(url, intentos=2)
     if j is None:                 # crumb caducado: se renueva una vez
         crumb()
@@ -312,15 +315,27 @@ def fundamentales(t):
     except (TypeError, KeyError, IndexError):
         return {}
     fd, pr, sp = r.get("financialData") or {}, r.get("price") or {}, r.get("summaryProfile") or {}
+    sd, ks = r.get("summaryDetail") or {}, r.get("defaultKeyStatistics") or {}
 
     def v(d, k):
+        """Solo números finitos: Yahoo a veces manda "Infinity" como texto (PER con beneficio ~0)."""
         x = d.get(k)
-        return x.get("raw") if isinstance(x, dict) else None
+        r = x.get("raw") if isinstance(x, dict) else None
+        if isinstance(r, bool) or not isinstance(r, (int, float)):
+            return None
+        return r if math.isfinite(r) else None
 
     f = {"cr_q": v(fd, "revenueGrowth"), "mb": v(fd, "grossMargins"), "mn": v(fd, "profitMargins"),
+         "mo": v(fd, "operatingMargins"),
          "caja": v(fd, "totalCash"), "deuda": v(fd, "totalDebt"), "rev": v(fd, "totalRevenue"),
          "fcf": v(fd, "freeCashflow"), "mc": v(pr, "marketCap"),
-         "ysector": sp.get("sector"), "yind": sp.get("industry")}
+         "ysector": sp.get("sector"), "yind": sp.get("industry"),
+         # valoración y riesgo (2026-10-05): sin esto la app no decía si algo es caro o barato
+         "pe": v(sd, "trailingPE"), "fpe": v(sd, "forwardPE"), "ps": v(sd, "priceToSalesTrailing12Months"),
+         "eveb": v(ks, "enterpriseToEbitda"), "div": v(sd, "dividendYield"), "beta": v(sd, "beta"),
+         "corto": v(ks, "shortPercentOfFloat")}
+    if f["fcf"] is not None and f["rev"]:
+        f["mfcf"] = f["fcf"] / f["rev"]          # caja libre por cada dólar vendido
     # Crecimiento ANUAL (último ejercicio vs el anterior). El de un solo trimestre
     # engaña con cobros puntuales (licencias de biotecnológicas: +3.749 %).
     anual = (((r.get("earnings") or {}).get("financialsChart") or {}).get("yearly") or [])
@@ -338,24 +353,26 @@ def fundamentales(t):
 
 
 def precios(t, rango="1y"):
-    j = pedir(f"https://query1.finance.yahoo.com/v8/finance/chart/{t}?range={rango}&interval=1d&events=split")
+    j = pedir(f"https://query1.finance.yahoo.com/v8/finance/chart/{t}?range={rango}&interval=1d&events=split,div")
     try:
         r = j["chart"]["result"][0]
         q = r["indicators"]["quote"][0]
         ts = r.get("timestamp") or []
+        adj = ((r["indicators"].get("adjclose") or [{}])[0].get("adjclose")) or [None] * len(ts)
     except (TypeError, KeyError, IndexError):
         return None
-    fil = [(ts[i], q["open"][i], q["close"][i], q["volume"][i] or 0)
+    fil = [(ts[i], q["open"][i], q["close"][i], q["volume"][i] or 0, adj[i] or q["close"][i])
            for i in range(len(ts)) if q["close"][i]]
     if len(fil) < 3:
         return None
-    c = [x[2] for x in fil]
+    c = [x[2] for x in fil]          # precio de cierre (lo que se ve en el mercado)
+    a = [x[4] for x in fil]          # cierre ajustado por dividendos: la rentabilidad REAL
 
-    def ret(n):
-        if len(c) > n:
-            return c[-1] / c[-1 - n] - 1
-        if n == 251 and len(c) >= 240:          # "1 año" de Yahoo trae ~250 sesiones
-            return c[-1] / c[0] - 1
+    def ret(n, s=a):
+        if len(s) > n:
+            return s[-1] / s[-1 - n] - 1
+        if n == 251 and len(s) >= 240:          # "1 año" de Yahoo trae ~250 sesiones
+            return s[-1] / s[0] - 1
         return None
 
     ult = c[-252:]
@@ -365,15 +382,154 @@ def precios(t, rango="1y"):
         if s.get("numerator") and s.get("denominator"):
             splits.append((s["date"], s["denominator"] / s["numerator"]))
     return {
-        "px": c[-1], "r1d": ret(1), "r1m": ret(21), "r3m": ret(63), "r6m": ret(126), "r1a": ret(251),
+        # r1d con el precio (es lo que marca el mercado hoy); el resto CON dividendos (2026-10-05)
+        "px": c[-1], "r1d": ret(1, c), "r1m": ret(21), "r3m": ret(63), "r6m": ret(126), "r1a": ret(251),
         "hi": max(ult), "lo": min(ult), "dd": c[-1] / max(ult) - 1,
         "dv": st.mean(x[2] * x[3] for x in fil[-20:]),
         "ses": len(fil), "o1": fil[0][1],
-        "sem": [r4(c[i]) for i in idx],
+        "sem": [r4(a[i], 5) for i in idx],    # la gráfica también con dividendos: comparación justa con el SPY
         "d0": time.strftime("%Y-%m-%d", time.gmtime(fil[idx[0]][0])),
         "d1": time.strftime("%Y-%m-%d", time.gmtime(fil[-1][0])),
         "splits": splits,
     }
+
+
+# ── fondos índice (2026-10-05): el núcleo con el que empieza un inversor ─────
+# La comisión, el nombre y la rentabilidad salen de Yahoo cada día (no se escriben a mano).
+# Tickers comprobados el 2026-10-05: SPLG ya no existe (ahora SPYM).
+FONDOS = [
+    ("nucleo", "VOO", "Las 500 empresas grandes de EE.UU. El clásico para empezar."),
+    ("nucleo", "IVV", "Lo mismo que VOO (S&P 500), de iShares."),
+    ("nucleo", "SPYM", "Lo mismo (S&P 500), de State Street; precio por acción más bajo."),
+    ("nucleo", "SPY", "El S&P 500 más famoso y el listón de la app, pero cobra 3 veces más que VOO."),
+    ("nucleo", "FXAIX", "S&P 500 de Fidelity (fondo, no ETF: se compra en Fidelity)."),
+    ("nucleo", "SWPPX", "S&P 500 de Schwab (fondo, no ETF: se compra en Schwab)."),
+    ("total", "VTI", "Todo el mercado de EE.UU.: grandes, medianas y pequeñas (~3.500 empresas)."),
+    ("total", "ITOT", "Todo el mercado de EE.UU., de iShares."),
+    ("total", "SCHB", "Todo el mercado de EE.UU., de Schwab."),
+    ("total", "FSKAX", "Todo el mercado de EE.UU., de Fidelity (fondo)."),
+    ("mundo", "VT", "Todo el mundo en un solo fondo (~60 % EE.UU., ~40 % resto)."),
+    ("mundo", "VXUS", "Todo el mundo MENOS EE.UU.: para complementar a VOO o VTI."),
+    ("tec", "QQQM", "Las 100 mayores del Nasdaq (mucha tecnología). Más barato que QQQ."),
+    ("tec", "QQQ", "Lo mismo que QQQM, más caro (pensado para operar mucho)."),
+    ("tec", "VUG", "Empresas grandes de crecimiento."),
+    ("peq", "IJR", "Las 600 pequeñas del S&P 600 (exige beneficios para entrar)."),
+    ("peq", "VB", "Empresas pequeñas de EE.UU., de Vanguard."),
+    ("peq", "AVUV", "Pequeñas y baratas (valor), gestión activa con reglas."),
+    ("peq", "IWM", "Russell 2000: pequeñas, incluidas las que pierden dinero."),
+    ("div", "SCHD", "Empresas que pagan dividendos altos y estables."),
+    ("div", "VYM", "Dividendos altos, más diversificado que SCHD."),
+    ("renta", "BND", "Bonos de EE.UU. (renta fija): sube menos, cae menos."),
+    ("renta", "SGOV", "Letras del Tesoro a 0-3 meses: casi como una cuenta remunerada."),
+]
+# Respaldo SOLO para cuando Yahoo no da la comisión (comprobado en la web de la gestora).
+TER_VERIFICADA = {"SPYM": 0.0002}    # ssga.com, 2026-10-05 (antes SPLG)
+
+
+def fondos():
+    """Comisión, tamaño y rentabilidad CON dividendos de los fondos índice de referencia."""
+    out = []
+    for grupo, t, desc in FONDOS:
+        # OJO: con "range=max" Yahoo devuelve velas MENSUALES aunque se pida 1d (406 puntos
+        # en vez de 8.477 para el SPY). Con period1/period2 explícitos sí da las diarias.
+        j = pedir(f"https://query1.finance.yahoo.com/v8/finance/chart/{t}?period1=0&period2=9999999999&interval=1d&events=div")
+        time.sleep(0.15)
+        try:
+            r = j["chart"]["result"][0]
+            m = r["meta"]
+            adj = r["indicators"]["adjclose"][0]["adjclose"]
+            ts = r["timestamp"]
+        except (TypeError, KeyError, IndexError):
+            log("  fondo sin datos:", t)
+            continue
+        serie = [(ts[i], adj[i]) for i in range(len(ts)) if adj[i]]
+        if len(serie) < 260:
+            continue
+        tss = [x[0] for x in serie]
+        fin_ts, fin_v = serie[-1]
+
+        def anual(anos):
+            """Rentabilidad anual compuesta CON dividendos entre el cierre de hace `anos`
+            años exactos (la última sesión de esa fecha o antes) y el último cierre."""
+            obj = fin_ts - anos * 365.25 * 86400
+            i = bisect.bisect_right(tss, obj) - 1
+            if i < 0:
+                return None
+            return (fin_v / serie[i][1]) ** (1 / anos) - 1 if anos != 1 else fin_v / serie[i][1] - 1
+        f = {"g": grupo, "t": t, "d": desc, "n": m.get("longName") or m.get("shortName") or t,
+             "tipo": m.get("instrumentType"), "px": m.get("regularMarketPrice"),
+             "r1a": anual(1), "r3a": anual(3), "r5a": anual(5), "r10a": anual(10),
+             "desde": time.strftime("%Y-%m-%d", time.gmtime(serie[0][0])),
+             "rmax": (fin_v / serie[0][1]) ** (365.25 * 86400 / (fin_ts - serie[0][0])) - 1}
+        # peor caída de su historia (de máximo a mínimo, cierre diario con dividendos)
+        pico, peor = serie[0][1], 0.0
+        for _, v in serie:
+            pico = max(pico, v)
+            peor = min(peor, v / pico - 1)
+        f["peor"] = peor
+        if not CRUMB["v"]:
+            crumb()
+        q = pedir(f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{t}"
+                  f"?modules=fundProfile,summaryDetail&crumb={CRUMB['v']}", intentos=2)
+        time.sleep(0.15)
+        try:
+            res = q["quoteSummary"]["result"][0]
+            fe = (res.get("fundProfile") or {}).get("feesExpensesInvestment") or {}
+            sd = res.get("summaryDetail") or {}
+            er = (fe.get("annualReportExpenseRatio") or {}).get("raw")
+            f.update(ter=er, rdiv=(sd.get("yield") or {}).get("raw"),
+                     tam=(sd.get("totalAssets") or {}).get("raw"))
+        except (TypeError, KeyError, IndexError):
+            pass
+        if f.get("ter") is None and t in TER_VERIFICADA:
+            f["ter"] = TER_VERIFICADA[t]
+        out.append({k: (r4(x) if isinstance(x, float) else x) for k, x in f.items() if x is not None})
+    return out
+
+
+def indice_diario():
+    """S&P 500 (SPY) día a día CON dividendos desde 1993: para comparar tu cartera con el índice."""
+    j = pedir("https://query1.finance.yahoo.com/v8/finance/chart/SPY?period1=0&period2=9999999999&interval=1d&events=div")
+    try:
+        r = j["chart"]["result"][0]
+        adj = r["indicators"]["adjclose"][0]["adjclose"]
+        ts = r["timestamp"]
+    except (TypeError, KeyError, IndexError):
+        return None
+    d0 = dt.date(1970, 1, 1)
+    dias, vals = [], []
+    for i in range(len(ts)):
+        if adj[i]:
+            dias.append((dt.datetime.fromtimestamp(ts[i], dt.timezone.utc).date() - d0).days)
+            vals.append(r4(adj[i], 6))
+    # días como diferencias (pesa poco); la app los reconstruye
+    return {"t": "SPY", "d0": dias[0], "dd": [b - a for a, b in zip(dias, dias[1:])], "v": vals, "dias": dias,
+            "nota": "Cierre ajustado por dividendos (Yahoo). Día 0 = días desde 1970-01-01."}
+
+
+def caidas_diarias(ind, umbral=-0.20):
+    """Caídas del SPY (con dividendos, cierre diario) de más del 20 %: de máximo a mínimo y
+    cuánto tardó en volver al máximo. Con datos diarios salen 2020 y 2022, que con medias
+    mensuales (la serie de Shiller) se quedan por debajo del 20 %."""
+    d0 = dt.date(1970, 1, 1)
+    f = lambda k: (d0 + dt.timedelta(days=ind["dias"][k])).isoformat()
+    v, out, pico, ep = ind["v"], [], 0, None
+    for k in range(1, len(v)):
+        if v[k] >= v[pico]:
+            if ep:
+                ep["rec"] = f(k)
+                out.append(ep)
+                ep = None
+            pico = k
+            continue
+        dd = v[k] / v[pico] - 1
+        if ep is None and dd <= umbral:
+            ep = {"pico": f(pico), "fondo": f(k), "dd": dd}
+        if ep and dd < ep["dd"]:
+            ep.update(fondo=f(k), dd=dd)
+    if ep:
+        out.append(ep)
+    return [{k: (r4(x) if isinstance(x, float) else x) for k, x in e.items()} for e in out]
 
 
 # ── SEC: compras y ventas de directivos (formulario 4) ───────────────────────
@@ -524,6 +680,8 @@ def tema_de(e):
         if sub in T["gics"] or (yind and any(s in yind for s in T["yind"])):
             return k
     n = f" {(e.get('n') or '').lower()} "
+    if re.search(r"\b(ai|a\.i\.)\b", n):          # "SoundHound AI", "C3.ai" (con límites de palabra)
+        return "ia"
     for k, T in TEMAS.items():
         if any(w in n for w in T["nombre_kw"]):
             return k
@@ -557,9 +715,14 @@ def puntuar(empresas):
             if e["idx"] in ("600", "400", "IPO") and e.get("mc") and e["mc"] <= 10e9
             and (e.get("dv") or 0) >= 2e6 and e.get("cr") is not None and (e.get("rev") or 0) >= 20e6
             and e.get("sector") not in ("Finanzas", "Inmobiliario")]
+    # 2026-10-05: el "beneficio" usa el margen OPERATIVO (antes el neto). El neto se infla con
+    # cosas puntuales (Duolingo: 36 % neto por una devolución de impuestos, 12 % operativo).
+    # Medido 2012-2025 (backtest/medir.py), ni una ni otra versión se distinguen del azar.
+    for e in eleg:
+        e["mben"] = e.get("mo") if e.get("mo") is not None else e.get("mn")
     rc = rango_pct([e["cr"] for e in eleg])
     rmb = rango_pct([e.get("mb") for e in eleg])
-    rmn = rango_pct([e.get("mn") for e in eleg])
+    rmn = rango_pct([e.get("mben") for e in eleg])
     rcol = rango_pct([colchon(e) for e in eleg])
     rint = rango_pct([(e.get("wv") or {}).get("tend") for e in eleg])
     pesos = {"crec": .35, "margen": .15, "benef": .15, "solidez": .15, "tema": .10, "interes": .10}
@@ -571,7 +734,7 @@ def puntuar(empresas):
         comp = {
             "crec": rc(e["cr"]),
             "margen": rmb(e["mb"]) if e.get("mb") is not None else 50,
-            "benef": rmn(e["mn"]) if e.get("mn") is not None else 50,
+            "benef": rmn(e["mben"]) if e.get("mben") is not None else 50,
             "solidez": sol,
             "tema": 100 if e["tema"] != "otros" else 0,
             "interes": rint(e["wv"]["tend"]) if e.get("wv") else 50,
@@ -639,10 +802,21 @@ def modo_completo(salida):
         L = lista_sp(url, idx)
         log(f"  S&P {idx}: {len(L)}")
         uni += L
-    vistos = {e["t"] for e in uni}
+    # Wikipedia a veces tiene una empresa en dos listas mientras cambia de índice (CORT y
+    # EAT salían dos veces el 2026-10-04): se queda la primera (la del índice mayor).
+    vistos, unicos = set(), []
+    for e in uni:
+        if e["t"] not in vistos:
+            vistos.add(e["t"])
+            unicos.append(e)
+    uni = unicos
     recientes = [x for x in ipos_recientes() if x["t"] not in vistos]
     log(f"  salidas a bolsa recientes (18 meses, sin SPACs): {len(recientes)}")
     uni += recientes
+    n_max = int(os.environ.get("RB_MAX") or 0)
+    if n_max:                                   # solo para pruebas: una muestra de todo tipo de valores
+        uni = uni[:: max(1, len(uni) // n_max)]
+        log(f"  PRUEBA: solo {len(uni)} valores")
 
     log(f"precios y fundamentales de {len(uni)} valores + SPY")
     crumb()
@@ -661,15 +835,19 @@ def modo_completo(salida):
             continue                                  # SPAC disfrazado
         e["sector"] = SECTOR_ES.get(e.get("sector") or e.get("ysector"), e.get("sector") or e.get("ysector") or "—")
         e.update({k: p[k] for k in ("px", "r1d", "r1m", "r3m", "r6m", "r1a", "hi", "lo", "dd", "dv")})
+        e["fin"] = e["sector"] in ("Finanzas", "Inmobiliario")   # bancos/REIT: margen y ventas no comparables
         if e["idx"] == "IPO":
-            ajuste = 1.0
+            ajuste, ncs = 1.0, 0
             ini = dt.datetime.fromisoformat(e["ipo_fecha"]).timestamp() - 86400
             for fecha, k in p["splits"]:
                 if fecha > ini:
                     ajuste *= k
+                    ncs += k > 1                       # contrasplit: junta N acciones en 1
             e["ses"] = p["ses"]
+            if ajuste != 1:
+                e["aj"], e["ncs"] = ajuste, ncs
             if e.get("ipo_px"):
-                e["ipo_px_aj"] = e["ipo_px"] * ajuste
+                e["ipo_px_aj"] = e["ipo_px"] * ajuste    # precio de salida en las acciones de HOY
                 e["r_ipo"] = p["px"] / e["ipo_px_aj"] - 1
             e["r_dia1"] = p["px"] / p["o1"] - 1 if p["o1"] else None
             e["grande"] = (e.get("ipo_usd") or 0) >= 1e8
@@ -707,16 +885,39 @@ def modo_completo(salida):
     n_sec = directivos(empresas)
     log(f"  revisadas {n_sec}, con compras de directivos: {sum(1 for e in empresas if (e.get('ins') or {}).get('c'))}")
 
-    CAMPOS = ["t", "n", "idx", "sector", "tema", "px", "mc", "r1d", "r1m", "r3m", "r6m", "r1a",
-              "hi", "dd", "cr", "cr_a", "cr_q", "irreg", "rev", "mb", "mn", "caja", "deuda", "run",
-              "wv", "sc", "comp", "cast", "salud", "ipo_fecha", "ipo_px", "ipo_px_aj", "ipo_usd", "bolsa",
-              "ses", "r_ipo", "r_dia1", "grande", "lockup", "cik", "ins"]
+    log("fondos índice y S&P 500 día a día")
+    lista_fondos = fondos()
+    ind = indice_diario()
+    guardar(f"{salida}/fondos.json", {"act": ahora(), "f": lista_fondos,
+                                      "caidas_spy": caidas_diarias(ind) if ind else []})
+    if ind:
+        guardar(f"{salida}/indice.json", {k: x for k, x in ind.items() if k != "dias"})
+    log(f"  fondos: {len(lista_fondos)}  índice diario: {len(ind['v']) if ind else 0} sesiones")
+
+    # Valoración típica de cada sector, para que la ficha diga si algo es caro o barato
+    # frente a sus parecidas (mediana; el PER y el EV/EBITDA solo cuando son positivos).
+    med_sector = {}
+    for sec in {e["sector"] for e in empresas}:
+        g = [e for e in empresas if e["sector"] == sec]
+        m = {}
+        for k, pos in (("pe", True), ("fpe", True), ("ps", False), ("eveb", True), ("div", False)):
+            vals = [e[k] for e in g if isinstance(e.get(k), (int, float)) and math.isfinite(e[k]) and (e[k] > 0 or not pos)]
+            if len(vals) >= 8:
+                m[k] = r4(st.median(vals))
+        if m:
+            med_sector[sec] = m
+
+    CAMPOS = ["t", "n", "idx", "sector", "tema", "fin", "px", "mc", "r1d", "r1m", "r3m", "r6m", "r1a",
+              "hi", "dd", "cr", "cr_a", "cr_q", "irreg", "rev", "mb", "mo", "mn", "mfcf", "caja", "deuda", "run",
+              "pe", "fpe", "ps", "eveb", "div", "beta", "corto",
+              "wv", "sc", "comp", "cast", "salud", "ipo_fecha", "ipo_px", "ipo_px_aj", "aj", "ncs", "ipo_usd",
+              "bolsa", "ses", "r_ipo", "r_dia1", "grande", "lockup", "cik", "ins"]
     salida_e = []
     for e in empresas:
         o = {}
         for k in CAMPOS:
             v = e.get(k)
-            if v is None or v == "" or v == []:
+            if v is None or v is False or v == "" or v == []:     # lo que falta o es "no" no se escribe
                 continue
             if isinstance(v, float):
                 v = r4(v)
@@ -732,6 +933,7 @@ def modo_completo(salida):
         "spy": {k: r4(spy[k]) for k in ("px", "r1d", "r1m", "r3m", "r6m", "r1a", "dd")} if spy else None,
         "spy_hist": {"d0": spy["d0"], "d1": spy["d1"], "w": spy["sem"]} if spy else None,
         "temas": {k: {a: (r4(b) if isinstance(b, float) else b) for a, b in v.items()} for k, v in temas.items()},
+        "med_sector": med_sector,
         "medido": MEDIDO, "duracion_min": round((time.time() - t0) / 60, 1)})
     log(f"completo OK: {len(empresas)} empresas, {n_eleg} puntuadas, {(time.time() - t0) / 60:.1f} min")
 

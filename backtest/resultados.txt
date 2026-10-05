@@ -1,0 +1,61 @@
+﻿cargando...
+  símbolos antiguos: 695 aceptados, 1129 descartados (el ticker es hoy de otra empresa)
+  16083 empresas con cuentas, 7235 con precios, 575067 compras de directivos (60s)
+  2011-12-31: potencial 414, castigadas-univ 801, directivos-univ 1152, cobertura 636/1162 (61s)
+  2012-12-31: potencial 620, castigadas-univ 852, directivos-univ 1217, cobertura 1252/2965 (64s)
+  2013-12-31: potencial 657, castigadas-univ 998, directivos-univ 1360, cobertura 1293/2922 (67s)
+  2014-12-31: potencial 675, castigadas-univ 1060, directivos-univ 1413, cobertura 1354/2883 (69s)
+  2015-12-31: potencial 732, castigadas-univ 1075, directivos-univ 1476, cobertura 1435/2881 (72s)
+  2016-12-31: potencial 778, castigadas-univ 1185, directivos-univ 1595, cobertura 1481/2794 (75s)
+  2017-12-31: potencial 778, castigadas-univ 1242, directivos-univ 1681, cobertura 1546/2700 (78s)
+  2018-12-31: potencial 839, castigadas-univ 1279, directivos-univ 1701, cobertura 1623/2659 (81s)
+  2019-12-31: potencial 892, castigadas-univ 1366, directivos-univ 1818, cobertura 1762/2729 (84s)
+  2020-12-31: potencial 913, castigadas-univ 1458, directivos-univ 1967, cobertura 1840/2667 (87s)
+  2021-12-31: potencial 970, castigadas-univ 1668, directivos-univ 2190, cobertura 1950/2689 (91s)
+  2022-12-31: potencial 1096, castigadas-univ 1643, directivos-univ 2250, cobertura 2182/2913 (94s)
+  2023-12-31: potencial 1103, castigadas-univ 1712, directivos-univ 2312, cobertura 2249/2851 (98s)
+  2024-12-31: potencial 1117, castigadas-univ 1792, directivos-univ 2400, cobertura 2291/2728 (101s)
+
+=== DIAGNÓSTICO (pequeñas y medianas): quinto con el valor MÁS ALTO frente al MÁS BAJO, 12 meses ===
+  crecimiento de ventas        alto +16.1%  bajo +17.8%  diferencia -1.7%  alto vs universo +0.5%  (alto gana al bajo en el 51 % de los meses)
+  margen bruto                 alto +14.4%  bajo +17.3%  diferencia -2.9%  alto vs universo -1.1%  (alto gana al bajo en el 41 % de los meses)
+  margen neto                  alto +13.5%  bajo +20.2%  diferencia -6.6%  alto vs universo -2.0%  (alto gana al bajo en el 42 % de los meses)
+  margen operativo             alto +13.3%  bajo +19.5%  diferencia -6.2%  alto vs universo -2.3%  (alto gana al bajo en el 41 % de los meses)
+  caja/deuda                   alto +15.5%  bajo +16.1%  diferencia -0.6%  alto vs universo -0.0%  (alto gana al bajo en el 46 % de los meses)
+  caja libre/precio (valor)    alto +15.6%  bajo +18.0%  diferencia -2.4%  alto vs universo -0.0%  (alto gana al bajo en el 40 % de los meses)
+  ventas/precio (valor)        alto +20.5%  bajo +16.1%  diferencia +4.4%  alto vs universo +4.9%  (alto gana al bajo en el 48 % de los meses)
+  momento 12-1 meses           alto +17.7%  bajo +16.2%  diferencia +1.5%  alto vs universo +2.1%  (alto gana al bajo en el 61 % de los meses)
+  PUNTUACIÓN de la app         alto +16.4%  bajo +18.5%  diferencia -2.1%  alto vs universo +0.9%  (alto gana al bajo en el 54 % de los meses)
+  puntuación V2 (operativo)    alto +16.0%  bajo +18.1%  diferencia -2.1%  alto vs universo +0.5%  (alto gana al bajo en el 54 % de los meses)
+
+=== RESULTADOS (12 meses, compra a partes iguales, con dividendos) ===
+potencial_V1       n≈ 20.0  media +16.5% (SPY +15.3%)  mediana +16.5% (SPY +16.3%)  vs SPY +1.2%/+2.8%  vs universo +1.0%  vs IJR +3.6%  años ganando al SPY 8/14  -> NO gana al índice con fiabilidad
+                    t vs SPY -0.31 · t vs universo -0.05 · vs SPY 2012-18 +6.9% / 2019-25 -9.8% · percentil frente al azar 53 (mejor que la mediana del azar el 53 % de los meses)
+potencial_V2       n≈ 20.0  media +16.3% (SPY +15.3%)  mediana +15.4% (SPY +16.3%)  vs SPY +1.0%/+1.7%  vs universo +0.7%  vs IJR +3.4%  años ganando al SPY 9/14  -> FUNCIONA (cumple los 3 criterios)
+                    t vs SPY -0.22 · t vs universo +0.09 · vs SPY 2012-18 +4.5% / 2019-25 -6.3% · percentil frente al azar 52 (mejor que la mediana del azar el 53 % de los meses)
+potencial_univ     n≈843.8  media +15.6% (SPY +15.3%)  mediana +13.4% (SPY +16.3%)  vs SPY +0.2%/-1.5%  vs universo +0.0%  vs IJR +2.7%  años ganando al SPY 5/14  -> (referencia)
+                    t vs SPY -0.55 · vs SPY 2012-18 +2.2% / 2019-25 -4.7%
+cast_0_1           n≈ 33.4  media +12.3% (SPY +15.3%)  mediana +10.8% (SPY +16.3%)  vs SPY -3.0%/-5.8%  vs universo -1.8%  vs IJR -0.6%  años ganando al SPY 7/14  -> NO gana al índice con fiabilidad
+                    t vs SPY -0.80 · t vs universo -0.55 · vs SPY 2012-18 -7.3% / 2019-25 -4.3%
+cast_2             n≈ 72.4  media +10.8% (SPY +15.3%)  mediana +9.7% (SPY +16.3%)  vs SPY -4.6%/-7.9%  vs universo -3.3%  vs IJR -2.1%  años ganando al SPY 7/14  -> NO gana al índice con fiabilidad
+                    t vs SPY +0.54 · t vs universo +0.99 · vs SPY 2012-18 +5.3% / 2019-25 +0.6%
+cast_3_4           n≈113.2  media +14.1% (SPY +15.3%)  mediana +13.7% (SPY +16.3%)  vs SPY -1.3%/-3.3%  vs universo -0.0%  vs IJR +1.2%  años ganando al SPY 7/14  -> NO gana al índice con fiabilidad
+                    t vs SPY -0.09 · t vs universo +0.41 · vs SPY 2012-18 +4.7% / 2019-25 -5.4%
+cast_todas         n≈218.9  media +12.5% (SPY +15.3%)  mediana +12.2% (SPY +16.3%)  vs SPY -2.8%/-3.8%  vs universo -1.6%  vs IJR -0.4%  años ganando al SPY 6/14  -> NO gana al índice con fiabilidad
+                    t vs SPY +0.08 · t vs universo +0.61 · vs SPY 2012-18 +3.6% / 2019-25 -3.0%
+cast_univ          n≈1312.0  media +14.1% (SPY +15.3%)  mediana +13.4% (SPY +16.3%)  vs SPY -1.3%/-2.1%  vs universo +0.0%  vs IJR +1.2%  años ganando al SPY 4/14  -> (referencia)
+                    t vs SPY -1.35 · vs SPY 2012-18 +0.8% / 2019-25 -4.5%
+dir_cluster        n≈ 20.0  media +15.6% (SPY +15.3%)  mediana +12.6% (SPY +16.3%)  vs SPY +0.2%/-2.8%  vs universo +1.2%  vs IJR +2.7%  años ganando al SPY 7/14  -> NO gana al índice con fiabilidad
+                    t vs SPY +0.47 · t vs universo +0.84 · vs SPY 2012-18 -2.1% / 2019-25 +6.1% · percentil frente al azar 52 (mejor que la mediana del azar el 55 % de los meses)
+dir_cluster_todas  n≈108.5  media +15.8% (SPY +15.3%)  mediana +10.4% (SPY +16.3%)  vs SPY +0.4%/-3.1%  vs universo +1.4%  vs IJR +2.9%  años ganando al SPY 4/14  -> NO gana al índice con fiabilidad
+                    t vs SPY -0.97 · t vs universo -0.10 · vs SPY 2012-18 +0.1% / 2019-25 -4.5% · percentil frente al azar 51 (mejor que la mediana del azar el 49 % de los meses)
+dir_cluster_top    n≈ 20.0  media +13.8% (SPY +15.3%)  mediana +9.0% (SPY +16.3%)  vs SPY -1.6%/-5.0%  vs universo -0.6%  vs IJR +0.9%  años ganando al SPY 6/14  -> NO gana al índice con fiabilidad
+                    t vs SPY +0.34 · t vs universo +0.70 · vs SPY 2012-18 -2.1% / 2019-25 +5.4%
+dir_cluster_6m     n≈108.5  media +6.9% (SPY +7.4%)  mediana +5.2% (SPY +7.8%)  vs SPY -0.4%/-1.1%  vs universo +0.3%  vs IJR None  años ganando al SPY 6/14  -> NO gana al índice con fiabilidad
+                    t vs SPY -0.99 · t vs universo -0.46 · vs SPY 2012-18 +1.9% / 2019-25 -5.8%
+cast_dir           n≈ 50.1  media +12.5% (SPY +15.3%)  mediana +11.1% (SPY +16.3%)  vs SPY -2.8%/-5.9%  vs universo -1.6%  vs IJR -0.4%  años ganando al SPY 6/14  -> NO gana al índice con fiabilidad
+                    t vs SPY -0.31 · t vs universo +0.04 · vs SPY 2012-18 +5.6% / 2019-25 -8.9%
+dir_univ           n≈1776.4  media +14.4% (SPY +15.3%)  mediana +12.8% (SPY +16.3%)  vs SPY -1.0%/-2.7%  vs universo +0.0%  vs IJR +1.5%  años ganando al SPY 4/14  -> (referencia)
+                    t vs SPY -1.24 · vs SPY 2012-18 +1.0% / 2019-25 -5.1%
+
+(104s)

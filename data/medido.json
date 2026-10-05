@@ -1,0 +1,20 @@
+{
+ "act": "2026-10-04",
+ "como": "Medido con las cuentas presentadas a la SEC (lo que se sabía en cada fecha, sin mirar al futuro) y precios con dividendos: comprar cada mes las 20 primeras de la lista y aguantarlas un año, de 2011 a 2025, frente al S&P 500.",
+ "potencial": {
+  "funciona": false,
+  "corto": "No se distingue del azar",
+  "texto": "Comprando cada mes las 20 mejor puntuadas y aguantando un año: +16,3 % al año de media frente al +15,3 % del S&P 500; le ganó 9 de 14 años; toda la ventaja vino de 2012-2018 (+5 puntos al año) y en 2019-2025 perdió (−6 puntos al año). Frente a 20 empresas elegidas al azar quedó en el percentil 52 (50 = azar)."
+ },
+ "castigadas": {
+  "funciona": false,
+  "corto": "Pierde contra el índice",
+  "texto": "Las castigadas con 3-4 señales de salud dieron +14,1 % al año: algo mejor que las demás castigadas (+10,8 % a +12,3 %), pero menos que el S&P 500 (+15,3 %); le ganaron 7 de 14 años."
+ },
+ "directivos": {
+  "funciona": false,
+  "corto": "No se distingue del azar",
+  "texto": "Empresas con 2 o más directivos comprando en 90 días (las 20 de mayor importe): +15,6 % al año frente al +15,3 % del S&P 500, con una mediana de +12,6 % frente a +16,3 %; frente al azar, percentil 52. A 6 meses tampoco: −0,4 puntos frente al índice."
+ },
+ "cobertura": "Ojo: de las empresas que había en 2012 solo hay precios de un 42 % (muchas dejaron de cotizar). Eso favorece a las listas, así que en la realidad lo habrían hecho algo peor."
+}

@@ -239,6 +239,59 @@ h3 { font-size: 15px; margin: 22px 0 10px; color: var(--txt2); text-transform: u
 @keyframes flashUp { 0% { background: color-mix(in srgb, var(--up) 35%, transparent); } 100% { background: transparent; } }
 @keyframes flashDown { 0% { background: color-mix(in srgb, var(--down) 35%, transparent); } 100% { background: transparent; } }
 
+/* ── Mi dinero (2026-10-05) ── */
+.paso {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--line);
+}
+.paso + .paso { margin-top: 8px; }
+.paso input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--up); }
+.paso .pd { color: var(--txt2); font-size: 13.5px; margin-top: 3px; line-height: 1.45; }
+.paso.ok { border-color: color-mix(in srgb, var(--up) 45%, var(--line)); }
+.paso.ok b { color: var(--up); }
+.campos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.campos label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--txt2); }
+.campos label span { display: flex; align-items: center; gap: 6px; color: var(--txt3); font-size: 14px; }
+.campos input {
+  width: 100%; min-width: 0; padding: 10px 11px; border-radius: 11px; border: 1px solid var(--line);
+  background: var(--card2); color: var(--txt); font-size: 16px; outline: none; font-variant-numeric: tabular-nums;
+}
+.campos input:focus { border-color: var(--acc); }
+.res { margin-top: 12px; }
+.res-g span, .res-p span { display: block; font-size: 12.5px; color: var(--txt2); }
+.res-g b { display: block; font-size: 30px; font-weight: 750; letter-spacing: -.8px; line-height: 1.15; }
+.res-g em, .res-p em { display: block; font-style: normal; font-size: 12px; color: var(--txt3); }
+.res-p { background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+.res-p b { display: block; font-size: 17px; margin: 2px 0; }
+.ejex { position: relative; height: 16px; font-size: 11px; color: var(--txt3); }
+.ejex span { position: absolute; transform: translateX(-50%); }
+.tabla-c { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tabla-c div { background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 10px; }
+.tabla-c b { display: block; font-size: 13px; }
+.tabla-c span { display: block; font-size: 20px; font-weight: 750; }
+.tabla-c em { display: block; font-style: normal; font-size: 11.5px; color: var(--txt3); line-height: 1.3; }
+.grupo-f { font-size: 12.5px; color: var(--txt3); text-transform: uppercase; letter-spacing: .7px; margin: 14px 0 6px; font-weight: 650; }
+.chips.envolver { flex-wrap: wrap; overflow: visible; }
+.fila.fondo { cursor: default; align-items: flex-start; }
+.fila.fondo .det { white-space: normal; line-height: 1.4; margin-top: 2px; }
+.fila.fondo:hover { border-color: var(--line); }
+.fila.fondo .det b { color: inherit; font-weight: 650; }
+.fila.fondo .det b.up { color: var(--up); } .fila.fondo .det b.down { color: var(--down); } .fila.fondo .det b.warn { color: var(--warn); }
+.lote { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.lote .info { flex: 1; min-width: 0; }
+.lote .nom { font-weight: 650; }
+.lote .det { font-size: 12.5px; color: var(--txt3); }
+.lote .der { text-align: right; }
+.lote .der b { display: block; }
+.lote .der span { font-size: 12px; }
+.borrar { width: 32px; height: 32px; font-size: 13px; color: var(--txt3); flex: none; }
+.borrar.confirmar { width: auto; padding: 0 8px; color: var(--down); border-color: var(--down); font-size: 12px; }
+.aviso-ok { background: color-mix(in srgb, var(--up) 12%, var(--card)); border-color: color-mix(in srgb, var(--up) 40%, var(--line)); }
+.aviso-ok b { color: var(--up); }
+.bt { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.bt b { text-align: right; }
+.empieza { background: color-mix(in srgb, var(--acc) 10%, var(--card)); border-color: color-mix(in srgb, var(--acc) 35%, var(--line)); font-size: 14px; }
+
 /* ── varios ── */
 .vacio { text-align: center; color: var(--txt3); padding: 30px 10px; }
 .cargando { display: grid; place-items: center; min-height: 50vh; color: var(--txt3); gap: 10px; }
