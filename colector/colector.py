@@ -799,6 +799,149 @@ def noticias(q, n=5, es=False, dias=30):
     return out[:n], len(items)
 
 
+# ── titulares de demandas, investigaciones y Hacienda (2026-10-06) ──────────
+# Pedido del usuario: «a todas las acciones». Google News para cada empresa (90 días), en
+# tandas: cada pasada rápida mira las que llevan más tiempo sin revisarse (~1.200 al día,
+# todas cada día y medio) y guarda en caché; así nunca se piden 1.800 búsquedas de golpe.
+# Probado el 2026-10-06 con nombres difíciles: «Gap», «Hub» (Hub Group) o «Dow» a secas traen
+# basura (huecos de precio, el Dow Jones...) -> nombre completo o ticker; y «Crocs sues Five
+# Below» o «Altria sues FDA» no son malas noticias (la empresa es la que demanda) -> fuera.
+Q_LEGAL = '(lawsuit OR "class action" OR sued OR investigation OR probe OR subpoena OR fraud OR antitrust OR IRS OR "tax dispute")'
+RE_LEGAL = re.compile(r"\b(lawsuits?|class action|sued|suing|investigat\w*|probes?|probed|subpoena\w*|indict\w*|"
+                      r"securities fraud|fraud (?:charges?|lawsuits?|suits?|case|probe|investigation|allegations?|claims?)|"
+                      r"(?:accused of|for|alleged|alleging) fraud|fraudulent|"
+                      r"antitrust|DOJ|FTC|bankrupt\w*|chapter 11|going concern|restat\w*|short[- ]sell\w*|"
+                      r"whistleblower|settle(s|d|ment)|verdict|jury)\b", re.I)
+RE_FISCAL = re.compile(r"\b(IRS|tax (disputes?|court|evasion|probes?|fraud|bills?|claims?|case|assessments?)|back taxes|"
+                       r"transfer pricing)\b", re.I)
+# Bufetes que buscan accionistas tras una caída: aparecen en masa y no son una demanda en sí
+RE_BUFETE = re.compile(r"(law firm|\bLLP\b|\bLLC\b|encourages|reminds|deadline|lead plaintiff|on behalf of (investors|shareholders)|"
+                       r"investors? (alert|notice|reminder|who)|shareholders? (alert|notice|reminder|who)|Pomerantz|Rosen|"
+                       r"Levi & Korsinsky|Bragar|Faruqi|Glancy|Kessler Topaz|Bronstein|Robbins|Schall|Gross Law|Kirby McInerney|"
+                       r"Johnson Fistel|Hagens Berman|Bernstein Liebhard|Portnoy|Rigrodsky|Holzer|Block & Leviton|Bleichmar|"
+                       r"Labaton|Kahn Swick|ClaimsFiler|Frank R\. Cruz|Howard G\. Smith|Berger Montague|Saxena White|"
+                       r"Halper Sadeh|Monteverde|Ademi|Wohl & Fruchter|SBS Law|SueWallSt|opportunity to (lead|join)|"
+                       r"lost money|seeking recovery|investigation alert|shareholder investigation)", re.I)
+# Sucesos en una tienda o un local (robos, tiroteos, detenidos): salen con «investigation» o
+# «charged» y no son un problema de la empresa (Home Depot, 2026-10-06)
+RE_SUCESO = re.compile(r"\b(theft|thefts|larceny|stolen|steal\w*|vandal\w*|assault\w*|shoplift\w*|shooting|shot|stabb\w*|robber\w*|arrest\w*|police|deputies|"
+                       r"sheriff|suspects?|burglar\w*|murder\w*|homicide|carjack\w*|parking lot)\b", re.I)
+# La que demanda es ella («Crocs sues Five Below», «Altria Just Sued the FDA», «Crocs Accuses...»)
+DEMANDA_ELLA = r"\W+(?:\S+\W+){0,3}?(?i:sues|suing|files? (?:a )?(?:law)?suit|sued (?:the|a|an|its)\b|accuses)"
+COMUNES = {"gap", "dow", "hub", "ball", "block", "target", "visa", "match", "snap", "square", "apple", "general", "united",
+           "american", "first", "national", "international", "global", "southern", "eastern", "western", "northern",
+           "regions", "state", "universal", "progressive", "principal", "public", "federal", "digital", "energy", "realty",
+           "equity", "trust", "capital", "financial", "royal", "pacific", "atlantic", "central", "service", "delta",
+           "alliance", "lincoln", "liberty", "summit", "pioneer", "premier", "prime", "core", "edge", "frontier", "ally",
+           "arch", "crown", "eagle", "fidelity", "genesis", "heritage", "horizon", "insight", "legacy", "matrix", "sun",
+           "sterling", "vista", "carrier", "progress", "advance", "masco", "best", "south", "north", "new", "old",
+           "home", "texas", "california", "florida", "boston", "dollar", "family", "simon", "marathon", "las"}
+
+
+def nombre_busqueda(n):
+    """Nombre como lo escriben los titulares: sin «(The)», «(Class A)», «Inc.», «Corp.»...
+    (nombre_corto quita también «Group» y deja «Hub» para Hub Group)."""
+    n = re.sub(r"\s*\([^)]*\)", "", n)
+    for _ in range(2):
+        n = re.sub(r"[,.]?\s+(Inc|Corp|Corporation|Co|Company|Ltd|Limited|plc|PLC|N\.V|S\.A|SE|AG|LLC|L\.P|"
+                   r"Class [A-Z])\.?$", "", n.strip())
+    return n.strip(" ,.")
+
+
+def claves_busqueda(e):
+    """(frase para Google, patrón que el titular debe contener, alias para ver si demanda ella)."""
+    nb = nombre_busqueda(e["n"])
+    pal = nb.split()
+    tk = re.escape(e["t"])
+    con_tk = rf"\(\s*(?:[A-Za-z ]+:\s*)?{tk}\s*\)"           # «(NASDAQ: SMCI)» o «(IT)»
+    if len(pal) == 1 and (len(nb) <= 4 or nb.lower() in COMUNES):
+        completo = re.sub(r"\s*\([^)]*\)", "", e["n"]).strip(" ,.")    # «Gap Inc», «Dow Inc»
+        alias = completo
+        q = f'"{completo}"'
+    else:
+        alias = pal[0] if (len(pal) > 1 and len(pal[0]) >= 4 and pal[0].lower() not in COMUNES) else nb
+        q = f'"{nb}"'
+    fl = re.I if len(alias) >= 6 else 0                    # «Meta» sí, «meta-analysis» no
+    pat = re.compile(rf"\b{re.escape(alias)}\b", fl)
+    return q, (pat, re.compile(con_tk)), pat
+
+
+def titulares_legales(e):
+    """Titulares (90 días) de demandas, investigaciones o problemas con Hacienda que nombran a
+    la empresa. None si Google News no responde (para no darla por revisada)."""
+    q, (pat, pat_tk), alias = claves_busqueda(e)
+    url = ("https://news.google.com/rss/search?q=" + urllib.parse.quote(f"{q} {Q_LEGAL} when:90d")
+           + "&hl=en-US&gl=US&ceid=US:en")
+    x = pedir(url, NAV, "text", intentos=2)
+    time.sleep(1.0)
+    if x is None:
+        return None
+    try:
+        items = ET.fromstring(x).findall("./channel/item")
+    except ET.ParseError:
+        return None
+    out, vistos, n = [], set(), {"fis": 0, "leg": 0, "buf": 0}
+    for it in items:
+        ti = it.findtext("title") or ""
+        fu = it.findtext("source") or ""
+        if fu and ti.endswith(" - " + fu):
+            ti = ti[: -len(fu) - 3]
+        if not (pat.search(ti) or pat_tk.search(ti)):
+            continue
+        fis, leg = RE_FISCAL.search(ti), RE_LEGAL.search(ti)
+        if not (fis or leg) or RE_SUCESO.search(ti):
+            continue
+        if re.search(alias.pattern + DEMANDA_ELLA, ti, alias.flags):
+            continue                                         # la que demanda es ella
+        k = re.sub(r"\W+", "", ti.lower())[:60]
+        if k in vistos:
+            continue
+        vistos.add(k)
+        try:
+            f = dt.datetime.strptime(it.findtext("pubDate"), "%a, %d %b %Y %H:%M:%S %Z")
+        except (TypeError, ValueError):
+            continue
+        tipo = "fis" if fis else "buf" if RE_BUFETE.search(ti) else "leg"
+        n[tipo] += 1
+        out.append({"ti": ti, "fu": fu, "url": it.findtext("link"), "f": f.strftime("%Y-%m-%dT%H:%MZ"), "k": tipo})
+    out.sort(key=lambda r: r["f"], reverse=True)
+    sel = []                       # hasta 3 de cada tipo (con 10 de Hacienda no se veían las demandas)
+    for k in ("fis", "leg", "buf"):
+        sel += [r for r in out if r["k"] == k][:3]
+    return {"it": sel, "n": {a: b for a, b in n.items() if b}}
+
+
+def demandas(salida, lista, tanda=200):
+    """Revisa una tanda (las que llevan más tiempo sin mirarse) y publica data/demandas.json."""
+    ruta = f"{CACHE}/demandas.json"
+    c = leer(ruta, {}) or {}
+    hoy = HOY.isoformat()
+    orden = sorted(lista, key=lambda e: (c.get(e["t"], {}).get("m", ""), e["t"]))
+    hechas = seguidos = 0
+    for e in orden[:tanda]:
+        r = titulares_legales(e)
+        if r is None:
+            seguidos += 1
+            if seguidos >= 5:
+                log("  Google News no responde: se sigue en la próxima pasada")
+                break
+            continue
+        seguidos = 0
+        c[e["t"]] = {"m": hoy, **r}
+        hechas += 1
+    guardar(ruta, c)
+    lim = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=90)).strftime("%Y-%m-%dT%H:%MZ")
+    pub = {}
+    for e in lista:
+        d = c.get(e["t"]) or {}
+        it = [x for x in d.get("it", []) if x["f"] >= lim]
+        if it:
+            pub[e["t"]] = {"it": it, "n": d.get("n", {})}
+    mirados = sum(1 for e in lista if e["t"] in c)
+    guardar(f"{salida}/demandas.json", {"act": ahora(), "mirados": mirados, "total": len(lista), "emp": pub})
+    log(f"  demandas: {hechas} revisadas en esta pasada, {mirados}/{len(lista)} con revisión, {len(pub)} con titulares")
+
+
 # ── temas y puntuación ───────────────────────────────────────────────────────
 def tema_de(e):
     sub = e.get("sub") or ""
@@ -916,6 +1059,9 @@ def modo_rapido(salida):
             obj["emp"][e["t"]] = noticias(f'"{nombre_corto(e["n"])}" stock', 4)[0]
     obj["act"] = ahora()
     guardar(f"{salida}/noticias.json", obj)
+
+    log("titulares de demandas e investigaciones")
+    demandas(salida, lista, int(os.environ.get("RB_TANDA_DEMANDAS") or 200))
     log("rapido OK:", len(prox), "proximas,", len(reg), "registradas,", len(obj["emp"]), "empresas con noticias")
 
 

@@ -91,9 +91,10 @@ async function cargar(nombre) {
 
 async function iniciar() {
   try {
-    const [res, emp, ipos, not, fon, med] = await Promise.all([cargar('resumen'), cargar('empresas'), cargar('ipos'),
-      cargar('noticias').catch(() => null), cargar('fondos').catch(() => null), cargar('medido').catch(() => null)]);
-    S.res = res; S.emp = emp.e; S.ipos = ipos; S.not = not; S.fondos = fon; S.bt = med;
+    const [res, emp, ipos, not, fon, med, dem] = await Promise.all([cargar('resumen'), cargar('empresas'), cargar('ipos'),
+      cargar('noticias').catch(() => null), cargar('fondos').catch(() => null), cargar('medido').catch(() => null),
+      cargar('demandas').catch(() => null)]);
+    S.res = res; S.emp = emp.e; S.ipos = ipos; S.not = not; S.fondos = fon; S.bt = med; S.dem = dem;
     S.emp.forEach(e => { S.porT[e.t] = e; });
   } catch (err) {
     $('#cargando').innerHTML = `<div class="vacio">No se pudieron cargar los datos.<br><small>${esc(err.message)}</small><br><br><button class="btn" onclick="location.reload()">Reintentar</button></div>`;
@@ -425,6 +426,7 @@ function pintarGuia() {
       <dt>Alarmas en la SEC</dt><dd>Avisos que la empresa ha tenido que presentar a la SEC en los últimos 2 años: que rehace sus cuentas porque las anteriores no eran fiables, que presenta tarde su informe, que está en quiebra o que incumple las normas de su bolsa. Son de las peores señales que puede dar una empresa. La app enlaza cada informe para que lo leas.</dd>
       <dt>Cambio de auditor con mala señal</dt><dd>El auditor revisa las cuentas de la empresa. Cambiarlo suele ser rutina; la app solo lo marca cuando el informe habla de «debilidades materiales» (fallos graves en cómo lleva las cuentas) o de que el auditor renuncia.</dd>
       <dt>Impuestos inciertos</dt><dd>Deducciones que la empresa se ha aplicado y que Hacienda (el IRS u otro fisco) podría no aceptarle y cobrarle. Casi todas las grandes tienen algo; la app avisa cuando pasan del 2 % de lo que vale en bolsa, porque ahí suele haber una disputa seria con el fisco.</dd>
+      <dt>Demandas e investigaciones</dt><dd>Titulares de Google News de los últimos 90 días que nombran a la empresa y hablan de demandas, investigaciones, multas de competencia o problemas con Hacienda. Se revisan todas las empresas cada día o dos. Se descartan los sucesos en una tienda (un robo en un Walmart) y las demandas que pone la propia empresa. Aparte van los anuncios de bufetes que buscan accionistas tras una caída: no son una demanda en sí. Una demanda no es una condena: las empresas grandes siempre tienen alguna.</dd>
       <dt>Sacar acciones nuevas / recomprar</dt><dd>Si hay más acciones que hace un año, tu trozo de la empresa encoge (se «diluye»): pasa en empresas que necesitan dinero o pagan mucho en acciones a sus empleados. Si hay menos, la empresa ha recomprado las suyas y tu trozo crece.</dd>
       <dt>Caja y deuda</dt><dd>El dinero que tiene en el banco frente a lo que debe. Mucha caja y poca deuda = aguanta mejor una mala racha.</dd>
       <dt>Meses de caja</dt><dd>Si pierde dinero, cuánto tiempo puede seguir así antes de quedarse sin caja. Menos de 18 meses = probablemente tendrá que pedir dinero (y eso suele bajar el precio).</dd>
@@ -880,13 +882,27 @@ function porQue(e) {
     if (e.ncs) no.push(['Ha hecho contrasplits', `Ha juntado acciones ${e.ncs === 1 ? 'una vez' : e.ncs + ' veces'} para que el precio no parezca hundido.`]);
   }
 
-  // Titulares de demandas, investigaciones o problemas con Hacienda (los que hay guardados)
-  const nts = S.not?.emp?.[e.t] || [];
-  const fis = nts.filter(n => FISCAL.test(n.ti));
-  const leg = nts.filter(n => !FISCAL.test(n.ti) && LEGAL.test(n.ti));
-  if (fis.length) no.push(['Noticias de un problema con Hacienda', `«${fis[0].ti}»`, fis[0].url]);
-  if (leg.length) no.push(['Noticias de demandas o investigaciones', `«${leg[0].ti}»${leg.length > 1 ? ` y ${leg.length - 1} más` : ''}. Ojo: a veces son bufetes buscando clientes tras una caída.`, leg[0].url]);
+  // Titulares de demandas, investigaciones o problemas con Hacienda (90 días). Desde el
+  // 2026-10-06 el colector los busca para TODAS las empresas (demandas.json, ya filtrados:
+  // nombran a la empresa, no son sucesos en una tienda ni demandas que pone ella). Si ese
+  // archivo no carga, se miran con el mismo criterio las noticias generales guardadas.
+  const { fis, leg, buf, n } = demandasDe(e);
+  const mas = k => (n[k] || 0) > 1 ? ` y ${n[k] - 1} titular${n[k] - 1 === 1 ? '' : 'es'} más en 90 días` : '';
+  if (fis.length) no.push(['Noticias de un problema con Hacienda', `«${fis[0].ti}»${mas('fis')}.`, fis[0].url]);
+  if (leg.length) no.push(['Noticias de demandas o investigaciones', `«${leg[0].ti}»${mas('leg')}. Una demanda no es una condena: muchas se archivan o se pactan.`, leg[0].url]);
+  if (buf.length && !leg.length) no.push(['Bufetes buscando accionistas', `«${buf[0].ti}». Suelen aparecer tras una caída fuerte: a veces acaban en una demanda colectiva y a veces no.`, buf[0].url]);
   return { si, no, graves };
+}
+
+function demandasDe(e) {
+  if (S.dem) {
+    const d = S.dem.emp?.[e.t] || { it: [], n: {} };
+    const de = k => d.it.filter(x => x.k === k);
+    return { fis: de('fis'), leg: de('leg'), buf: de('buf'), n: d.n || {}, todas: d.it };
+  }
+  const nts = S.not?.emp?.[e.t] || [];
+  const fis = nts.filter(x => FISCAL.test(x.ti)), leg = nts.filter(x => !FISCAL.test(x.ti) && LEGAL.test(x.ti));
+  return { fis, leg, buf: [], n: { fis: fis.length, leg: leg.length }, todas: [...fis, ...leg] };
 }
 
 function porQueHTML(e) {
@@ -976,6 +992,15 @@ function abrirFicha(t) {
     <h3>¿Cara o barata?</h3><div class="met">${val.map(([a, b, c]) => `<div><span class="et">${a}</span><b>${b}</b><em>${c}</em></div>`).join('')}</div>
     <p class="muted" style="font-size:12px;margin:8px 0 0">Un PER o un precio/ventas bajos no significan «ganga»: a veces el mercado ya espera problemas. Sirven para comparar con empresas parecidas, no para decidir solos. Rentabilidades de arriba con dividendos.</p>
     <h3>Noticias</h3><div class="card">${noticiasHTML(notis, 'No hay titulares guardados de esta empresa.')}</div>
+    ${(() => {
+      if (!S.dem) return '';
+      const L = demandasDe(e).todas;
+      const tag = { fis: '<span class="tag mal">Hacienda</span>', leg: '<span class="tag ojo">Demanda o investigación</span>', buf: '<span class="tag">Bufete</span>' };
+      return `<h3>Demandas e investigaciones · 90 días</h3><div class="card">${L.length
+        ? L.map(x => `<a class="noti" href="${esc(x.url)}" target="_blank" rel="noopener">${tag[x.k] || ''} ${esc(x.ti)}<small>${esc(x.fu)} · ${hace(x.f)}</small></a>`).join('')
+        : '<div class="muted" style="font-size:13px">Sin titulares de demandas, investigaciones ni problemas con Hacienda en los últimos 90 días.</div>'}
+        <p class="muted" style="font-size:12px;margin:10px 0 0">Titulares de Google News que nombran a la empresa. Se revisan todas cada día o dos; un titular no es una condena.</p></div>`;
+    })()}
     <div class="enlaces">
       <a class="btn pri" href="https://finance.yahoo.com/quote/${esc(e.t)}" target="_blank" rel="noopener">Yahoo Finance</a>
       <a class="btn" href="https://news.google.com/search?q=${qn}" target="_blank" rel="noopener">Más noticias</a>
