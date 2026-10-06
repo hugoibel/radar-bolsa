@@ -421,6 +421,11 @@ function pintarGuia() {
       <dt>Contrasplit</dt><dd>La empresa junta varias acciones en una (por ejemplo, 20 en 1) para que el precio no parezca de céntimos y no la echen de la bolsa. Casi siempre es señal de que se ha hundido: una salida a bolsa a $4 con tres contrasplits puede «costar» hoy $37 y haber perdido el 99,9 %.</dd>
       <dt>Compras de directivos (SEC)</dt><dd>Por ley, los directivos de una empresa tienen que avisar a la SEC (formulario 4) cuando compran o venden sus acciones. En estudios con datos de los años 80 a 2000, las empresas donde varios directivos compraban con su dinero lo hacían algo mejor que el mercado. Medido aquí con 2012-2025 (2 o más directivos comprando en 90 días), ya no se distingue del azar: es una pista para investigar, no una señal de compra. Vender dice poco: lo hacen por impuestos o para diversificar.</dd>
       <dt>Folleto (S-1)</dt><dd>El documento oficial que una empresa entrega a la SEC antes de salir a bolsa: cuenta su negocio, sus cifras y sus riesgos.</dd>
+      <dt>¿Por qué sí y por qué no?</dt><dd>En cada ficha, los hechos de la empresa a favor y en contra, explicados. Describen la empresa; no dicen si la acción va a subir. Medido aquí, ninguna de estas señales por sí sola ha ganado al índice de forma fiable.</dd>
+      <dt>Alarmas en la SEC</dt><dd>Avisos que la empresa ha tenido que presentar a la SEC en los últimos 2 años: que rehace sus cuentas porque las anteriores no eran fiables, que presenta tarde su informe, que está en quiebra o que incumple las normas de su bolsa. Son de las peores señales que puede dar una empresa. La app enlaza cada informe para que lo leas.</dd>
+      <dt>Cambio de auditor con mala señal</dt><dd>El auditor revisa las cuentas de la empresa. Cambiarlo suele ser rutina; la app solo lo marca cuando el informe habla de «debilidades materiales» (fallos graves en cómo lleva las cuentas) o de que el auditor renuncia.</dd>
+      <dt>Impuestos inciertos</dt><dd>Deducciones que la empresa se ha aplicado y que Hacienda (el IRS u otro fisco) podría no aceptarle y cobrarle. Casi todas las grandes tienen algo; la app avisa cuando pasan del 2 % de lo que vale en bolsa, porque ahí suele haber una disputa seria con el fisco.</dd>
+      <dt>Sacar acciones nuevas / recomprar</dt><dd>Si hay más acciones que hace un año, tu trozo de la empresa encoge (se «diluye»): pasa en empresas que necesitan dinero o pagan mucho en acciones a sus empleados. Si hay menos, la empresa ha recomprado las suyas y tu trozo crece.</dd>
       <dt>Caja y deuda</dt><dd>El dinero que tiene en el banco frente a lo que debe. Mucha caja y poca deuda = aguanta mejor una mala racha.</dd>
       <dt>Meses de caja</dt><dd>Si pierde dinero, cuánto tiempo puede seguir así antes de quedarse sin caja. Menos de 18 meses = probablemente tendrá que pedir dinero (y eso suele bajar el precio).</dd>
       <dt>Valor en bolsa</dt><dd>Lo que costaría comprar la empresa entera hoy. Pequeña: menos de $2.000 M; mediana: hasta $10.000 M.</dd>
@@ -783,6 +788,126 @@ function leyendaGraf(h, conSpy) {
   return `<div class="leyenda"><span>${fechaCorta(h.d0)} → ${fechaCorta(h.d1)}</span>${conSpy ? '<span><i style="background:var(--txt3)"></i>SPY (mismo punto de partida)</span>' : ''}</div>`;
 }
 
+// ── ¿Por qué sí y por qué no? (2026-10-06) ──────────────────────────────────
+// Hechos de la empresa a favor y en contra, con su explicación, y las alarmas de la SEC
+// (cuentas rehechas, informes tarde, quiebra, problemas para seguir cotizando). Describe la
+// empresa; no predice la acción: lo medido dice que ninguna señal sola gana al índice.
+const LEGAL = /\b(lawsuits?|class action|sued|sues|investigat\w*|probe[sd]?|subpoena\w*|fraud\w*|indict\w*|antitrust|DOJ|FTC|recalls?|bankrupt\w*|chapter 11|going concern|restat\w*|short[- ]sell\w*|whistleblower)\b/i;
+const FISCAL = /\b(IRS|tax (disputes?|court|evasion|probes?|fraud|bills?|claims?)|back taxes|transfer pricing)\b/i;
+const url8k = (e, a) => `https://www.sec.gov/Archives/edgar/data/${Number(e.cik)}/${a[1].replace(/-/g, '')}/${a[2]}`;
+const veces = n => n > 1 ? ` (${n} veces en 2 años)` : '';
+const listaY = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' y ' + a[a.length - 1] : (a[0] || '');
+
+function porQue(e) {
+  const si = [], no = [], graves = [];
+  const ms = S.res.med_sector?.[e.sector] || {};
+  const s = e.sec || {};
+  const ult = k => s[k][0];
+  const sec = (k, titulo, texto, lista) => lista.push([titulo, texto, url8k(e, ult(k))]);
+
+  // Alarmas de la SEC (2 años)
+  if (s.rehace) sec('rehace', 'Ha tenido que rehacer sus cuentas', `El ${fechaCorta(ult('rehace')[0])} avisó a la SEC de que sus cifras anteriores no eran fiables${veces(s.rehace.length)}. Los números que ves pueden no ser buenos.`, graves);
+  if (s.quiebra) sec('quiebra', 'Quiebra o administración judicial', `Lo comunicó a la SEC el ${fechaCorta(ult('quiebra')[0])}. En una quiebra el accionista es el último en cobrar y suele perderlo todo.`, graves);
+  if (s.tarde) sec('tarde', 'Presentó tarde sus cuentas', `El ${fechaCorta(ult('tarde')[0])} avisó a la SEC de que no llegaba a tiempo con su informe${veces(s.tarde.length)}. Suele esconder problemas contables o de dinero.`, graves);
+  if (s.cotiza) sec('cotiza', 'Problemas para seguir en bolsa', `El ${fechaCorta(ult('cotiza')[0])} comunicó que incumple las normas de su bolsa (por ejemplo, precio por debajo de $1). Si no lo arregla, la pueden sacar.`, graves);
+  if (s.auditor) sec('auditor', 'Cambio de auditor con mala señal', `El ${fechaCorta(ult('auditor')[0])}: el informe habla de fallos graves en sus controles contables o de que el auditor se va.`, no);
+  if (s.deterioro) sec('deterioro', 'Algo vale menos de lo que pagó', `El ${fechaCorta(ult('deterioro')[0])} apuntó una pérdida importante: algo que compró o construyó vale menos de lo que creía.`, no);
+
+  // El negocio (en bancos, aseguradoras e inmobiliarias no se puede comparar así)
+  const mo = e.mo ?? e.mn;
+  if (!e.fin) {
+    if (e.cr != null && e.cr >= 0.10 && !e.irreg) si.push(['Vende cada vez más', `Sus ventas crecen un ${pct(e.cr, 0, false)} al año.`]);
+    else if (e.cr != null && e.cr <= -0.05) no.push(['Vende menos que antes', `Sus ventas han caído un ${pct(-e.cr, 0, false)} en un año.`]);
+    if (e.irreg) no.push(['Ingresos irregulares', 'El último trimestre se dispara frente al año: no es su ritmo normal.']);
+    if (mo != null) {
+      if (mo >= 0.15) si.push(['Gana mucho con su negocio', `Se queda ${nf(mo * 100, 0)} céntimos de cada $1 que vende.`]);
+      else if (mo >= 0.05) si.push(['Gana dinero con su negocio', `Se queda ${nf(mo * 100, 0)} céntimos de cada $1 que vende.`]);
+      else if (mo < 0) no.push(['Pierde dinero con su negocio', `Pierde ${-mo >= 1 ? '$' + nf(-mo, 2) : nf(-mo * 100, 0) + ' céntimos'} por cada $1 que vende.`]);
+    }
+    if (e.mn > 0 && e.mo != null && e.mn > e.mo + 0.1) no.push(['Beneficio inflado', 'Su beneficio final es mucho mayor que el de su negocio: hay algo puntual (impuestos, venta de algo) que no se repetirá.']);
+    if (e.mfcf != null && e.mfcf >= 0.10) si.push(['Le sobra dinero de verdad', `Le quedan ${nf(e.mfcf * 100, 0)} céntimos de caja libre por cada $1 que vende.`]);
+    if (e.caja != null) {
+      const deuda = e.deuda || 0;
+      if (e.caja >= deuda) si.push(['Más dinero que deudas', `Tiene ${usd(e.caja)} en caja frente a ${deuda ? usd(deuda) : '$0'} de deuda.`]);
+      else if (e.ebitda > 0 && deuda / e.ebitda > 4) no.push(['Debe mucho', `Su deuda (${usd(deuda)}) equivale a ${nf(deuda / e.ebitda, 1)} años de lo que gana su negocio. Más de 4 ya es mucho.`]);
+      else if (!(e.ebitda > 0) && deuda > e.caja) no.push(['Debe más de lo que tiene', `${usd(deuda)} de deuda frente a ${usd(e.caja)} en caja, y su negocio no da para pagarla.`]);
+    }
+  }
+  const run = e.run != null ? Math.round(e.run * 3) : null;
+  if (run != null && run < 18) no.push(['Se le acaba el dinero', `Al ritmo de pérdidas de ahora le quedan unos ${run} meses de caja: tendrá que pedir prestado o sacar acciones nuevas, que diluyen las tuyas.`]);
+
+  // Acciones nuevas o recompradas (en una salida a bolsa reciente el año anterior no compara)
+  if (e.dil != null && e.idx !== 'IPO') {
+    if (e.dil >= 0.05) no.push(['Saca acciones nuevas', `Hay un ${pct(e.dil, 0, false)} más de acciones que hace un año: tu trozo de la empresa encoge${e.dil >= 0.25 ? ' (a veces es para comprar otra empresa)' : ''}.`]);
+    else if (e.dil <= -0.02) si.push(['Recompra sus acciones', `Hay un ${pct(-e.dil, 0, false)} menos de acciones que hace un año: cada acción tuya es un trozo mayor.`]);
+  }
+  // Impuestos: lo que dedujo y Hacienda podría no aceptarle
+  if (e.utb && e.mc && e.utb / e.mc >= 0.02) no.push(['Posibles problemas con Hacienda', `Declara ${usd(e.utb)} en impuestos inciertos (deducciones que el fisco podría rechazarle y cobrarle): el ${pct(e.utb / e.mc, 1, false)} de lo que vale en bolsa.`]);
+
+  // Precio
+  if (e.pe > 0 && ms.pe) {
+    if (e.pe < 0.75 * ms.pe && (mo ?? 0) > 0) si.push(['Más barata que su sector', `Pagas ${nf(e.pe, 1)} veces su beneficio; en su sector, ${nf(ms.pe, 1)}.`]);
+    else if (e.pe > 2 * ms.pe) no.push(['Cara frente a su sector', `Pagas ${nf(e.pe, 1)} veces su beneficio; en su sector, ${nf(ms.pe, 1)}. Se espera mucho de ella: si decepciona, cae fuerte.`]);
+  } else if (!(e.pe > 0) && e.ps != null && ms.ps && e.ps > 3 * ms.ps) {
+    no.push(['Cara para lo que vende', `Pagas ${nf(e.ps, 1)} veces sus ventas; en su sector, ${nf(ms.ps, 1)}.`]);
+  }
+  if (e.div >= 0.02 && (e.mn ?? 0) > 0) si.push(['Te paga dividendo', `Un ${pct(e.div, 1, false)} al año: unos $${nf(e.div * 100, 0)} por cada $100 invertidos.`]);
+
+  // Bolsa
+  const spy = S.res.spy?.r1a;
+  if (e.r1a != null && spy != null) {
+    const d = e.r1a - spy;
+    if (d >= 0.10) si.push(['Va mejor que el mercado', `En un año ha ganado ${pts(d)} más que el S&P 500.`]);
+    else if (d <= -0.25 && !e.cast) no.push(['Va muy por detrás del mercado', `En un año, ${pts(d)} frente al S&P 500.`]);
+  }
+  if (e.cast) {
+    const sal = e.salud || [];
+    if (sal.length >= 3) si.push(['Ha caído, pero el negocio aguanta', `Está un ${pct(-e.dd, 0, false)} por debajo de su máximo, pero ${listaY(sal)}.`]);
+    else no.push(['Se ha hundido', `Está un ${pct(-e.dd, 0, false)} por debajo de su máximo del año${sal.length ? '' : ' y no muestra señales de salud'}.`]);
+  }
+  if (e.corto >= 0.10) no.push(['Muchos apuestan a que baje', `El ${pct(e.corto, 0, false)} de sus acciones está vendido en corto.`]);
+  if (e.beta >= 1.6) no.push(['Muy brusca', `Se mueve ${nf(e.beta, 1)} veces más que el mercado, al subir y al bajar.`]);
+  else if (e.idx === '500' && e.beta != null && e.beta < 0.8) si.push(['Grande y tranquila', 'Está en el S&P 500 y se mueve menos que el mercado.']);
+  const ins = compraDir(e);
+  if (ins) si.push(['Sus directivos compran', `${ins.n} directivo${ins.n === 1 ? ' ha' : 's han'} comprado ${usd(ins.c)} con su propio dinero en 90 días.`]);
+
+  // Salidas a bolsa
+  if (e.idx === 'IPO' && S.ipos?.medido) {
+    const m = S.ipos.medido[e.grande ? 'grandes' : 'pequenas'];
+    no.push(['Acaba de salir a bolsa', `De mediana, las salidas a bolsa ${e.grande ? 'grandes' : 'pequeñas'} pierden un ${nf(-m.mediana_1a, 0)} % en su primer año y solo ganan el ${m.ganan_1a} % (lo medimos).`]);
+    const dl = e.lockup ? diasHasta(e.lockup) : null;
+    if (dl != null && dl > 0 && dl <= 60) no.push(['Se acaba el bloqueo', `El ${fechaCorta(e.lockup)} los primeros dueños podrán empezar a vender sus acciones.`]);
+    if (e.ncs) no.push(['Ha hecho contrasplits', `Ha juntado acciones ${e.ncs === 1 ? 'una vez' : e.ncs + ' veces'} para que el precio no parezca hundido.`]);
+  }
+
+  // Titulares de demandas, investigaciones o problemas con Hacienda (los que hay guardados)
+  const nts = S.not?.emp?.[e.t] || [];
+  const fis = nts.filter(n => FISCAL.test(n.ti));
+  const leg = nts.filter(n => !FISCAL.test(n.ti) && LEGAL.test(n.ti));
+  if (fis.length) no.push(['Noticias de un problema con Hacienda', `«${fis[0].ti}»`, fis[0].url]);
+  if (leg.length) no.push(['Noticias de demandas o investigaciones', `«${leg[0].ti}»${leg.length > 1 ? ` y ${leg.length - 1} más` : ''}. Ojo: a veces son bufetes buscando clientes tras una caída.`, leg[0].url]);
+  return { si, no, graves };
+}
+
+function porQueHTML(e) {
+  const { si, no, graves } = porQue(e);
+  const item = ([t, d, u]) => `<div class="pq-i"><b>${esc(t)}</b><span>${esc(d)}</span>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${u.includes('sec.gov') ? 'Ver el informe en la SEC' : 'Leer la noticia'} ↗</a>` : ''}</div>`;
+  let an = '';
+  if (e.nan >= 3 && e.rec) {
+    const txt = e.rec <= 1.5 ? 'comprar sin dudar' : e.rec <= 2.5 ? 'comprar' : e.rec <= 3.5 ? 'mantener' : 'vender';
+    const sube = e.obj && e.px ? e.obj / e.px - 1 : null;
+    an = `<p class="pq-an"><b>Los analistas</b> (${e.nan}) dicen de media «${txt}»${sube != null ? ` y le ponen un precio objetivo de ${precio(e.obj)} (<span class="${cls(sube)}">${pct(sube, 0)}</span>)` : ''}. Ojo: sus objetivos suelen pecar de optimistas.</p>`;
+  }
+  return `<h3>¿Por qué sí y por qué no?</h3>
+    ${graves.length ? `<div class="pq-graves"><div class="pq-t">🚩 Alarmas en la SEC</div>${graves.map(item).join('')}</div>` : ''}
+    <div class="pq">
+      <div class="pq-col si"><div class="pq-t">👍 A favor <span>${si.length}</span></div>${si.map(item).join('') || '<div class="pq-vacio">Nada destacable a favor.</div>'}</div>
+      <div class="pq-col no"><div class="pq-t">👎 En contra <span>${no.length + graves.length}</span></div>${no.map(item).join('') || (graves.length ? '<div class="pq-vacio">Además de las alarmas de arriba, nada destacable.</div>' : '<div class="pq-vacio">Nada destacable en contra.</div>')}</div>
+    </div>
+    ${an}
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Son hechos de la empresa, no una predicción. Lo medimos: ninguna de estas señales, por sí sola, ha ganado al S&P 500 de forma fiable. Si no sabes explicar por qué esta acción y no un fondo índice, mejor el fondo índice.</p>`;
+}
+
 function abrirFicha(t) {
   const e = S.porT[t];
   if (!e) return;
@@ -836,6 +961,7 @@ function abrirFicha(t) {
       <div class="kpi"><b class="${cls((e.r1a ?? 0) - (S.res.spy?.r1a ?? 0))}">${e.r1a != null && S.res.spy ? pts(e.r1a - S.res.spy.r1a) : '—'}</b><span>vs SPY 1 año</span></div>
     </div>
     <div id="graf"><div class="muted" style="font-size:13px;padding:30px 0">Cargando gráfica…</div></div>
+    ${porQueHTML(e)}
     ${e.sc != null ? `<h3>Puntuación de potencial: ${e.sc}/100</h3><div class="card comp">${Object.entries(e.comp).map(([k, v]) => `
       <div class="l"><span>${NOM[k]}</span><b>${v}</b></div><div class="barra"><i style="width:${v}%"></i></div>`).join('')}
       <p class="muted" style="font-size:12px;margin:10px 0 0">Cada barra compara la empresa con las otras ${S.res.n_puntuadas} puntuadas (100 = la mejor). Regla sin probar contra el índice.</p></div>` : ''}

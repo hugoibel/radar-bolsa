@@ -292,6 +292,38 @@ h3 { font-size: 15px; margin: 22px 0 10px; color: var(--txt2); text-transform: u
 .bt b { text-align: right; }
 .empieza { background: color-mix(in srgb, var(--acc) 10%, var(--card)); border-color: color-mix(in srgb, var(--acc) 35%, var(--line)); font-size: 14px; }
 
+/* ── ¿por qué sí y por qué no? (2026-10-06) ── */
+.pq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .pq { grid-template-columns: 1fr; } }
+.pq-col, .pq-graves {
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  border-top: 3px solid var(--line);
+}
+.pq-col.si { border-top-color: var(--up); }
+.pq-col.no { border-top-color: var(--warn); }
+.pq-graves {
+  margin-bottom: 10px; border-top-color: var(--down);
+  background: color-mix(in srgb, var(--down) 9%, var(--card));
+  border-color: color-mix(in srgb, var(--down) 35%, var(--line));
+}
+.pq-t { font-weight: 700; font-size: 14px; margin-bottom: 2px; }
+.pq-t span {
+  display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px;
+  background: var(--chip); color: var(--txt2); font-size: 12px; text-align: center; font-weight: 650;
+}
+.pq-graves .pq-t { color: var(--down); }
+.pq-i { padding: 9px 0 0; }
+.pq-i + .pq-i { border-top: 1px solid var(--line); margin-top: 9px; }
+.pq-i b { display: block; font-size: 14px; }
+.pq-col.si .pq-i b { color: var(--up); }
+.pq-col.no .pq-i b { color: var(--warn); }
+.pq-graves .pq-i b { color: var(--down); }
+.pq-i span { display: block; color: var(--txt2); font-size: 13px; line-height: 1.4; margin-top: 2px; }
+.pq-i a { display: inline-block; font-size: 12.5px; margin-top: 4px; }
+.pq-vacio { color: var(--txt3); font-size: 13px; padding-top: 8px; }
+.pq-an { font-size: 13px; color: var(--txt2); margin: 10px 0 0; line-height: 1.45; }
+.pq-an b { color: var(--txt); }
+
 /* ── varios ── */
 .vacio { text-align: center; color: var(--txt3); padding: 30px 10px; }
 .cargando { display: grid; place-items: center; min-height: 50vh; color: var(--txt3); gap: 10px; }

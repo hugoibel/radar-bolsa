@@ -333,7 +333,12 @@ def fundamentales(t):
          # valoración y riesgo (2026-10-05): sin esto la app no decía si algo es caro o barato
          "pe": v(sd, "trailingPE"), "fpe": v(sd, "forwardPE"), "ps": v(sd, "priceToSalesTrailing12Months"),
          "eveb": v(ks, "enterpriseToEbitda"), "div": v(sd, "dividendYield"), "beta": v(sd, "beta"),
-         "corto": v(ks, "shortPercentOfFloat")}
+         "corto": v(ks, "shortPercentOfFloat"),
+         # «¿por qué sí y por qué no?» de la ficha (2026-10-06): deuda frente a lo que gana y
+         # lo que opinan los analistas (la app avisa de que sus objetivos pecan de optimistas)
+         "ebitda": v(fd, "ebitda"), "de": v(fd, "debtToEquity"), "cur": v(fd, "currentRatio"),
+         "roe": v(fd, "returnOnEquity"), "rec": v(fd, "recommendationMean"),
+         "nan": v(fd, "numberOfAnalystOpinions"), "obj": v(fd, "targetMeanPrice")}
     if f["fcf"] is not None and f["rev"]:
         f["mfcf"] = f["fcf"] / f["rev"]          # caja libre por cada dólar vendido
     # Crecimiento ANUAL (último ejercicio vs el anterior). El de un solo trimestre
@@ -589,21 +594,124 @@ def form4(cik, acc, doc, cab):
     return d
 
 
-def directivos(empresas, dias=90):
-    """Compras/ventas de directivos de los últimos `dias` para las empresas que más
-    interesan (castigadas y top de potencial). Devuelve cuántas se han revisado."""
+# Señales de alarma en las presentaciones a la SEC (2026-10-06, para el «¿por qué sí y por
+# qué no?» de la ficha). Del formulario 8-K solo estos apartados; el resto (resultados,
+# fichajes, acuerdos) es rutina. NO se usa el 2.04 («adelanta una deuda»): leídos los
+# informes, empresas sanas lo presentan para devolver bonos antes de tiempo (Albertsons,
+# Moog). El 3.01 y el 4.01 se leen (ver mala_8k) porque casi siempre son rutina.
+ITEMS_8K = {"4.02": "rehace",      # sus cuentas anteriores ya no son fiables (las rehace)
+            "1.03": "quiebra",     # quiebra o administración judicial
+            "3.01": "cotiza",      # aviso de exclusión de bolsa / incumple las normas (o cambio de bolsa)
+            "4.01": "auditor",     # cambio de auditor
+            "2.06": "deterioro"}   # deterioro importante de activos
+FORMAS_TARDE = ("NT 10-K", "NT 10-Q", "NT 10-K/A", "NT 10-Q/A")   # avisa de que presentará tarde sus cuentas
+# Lo que convierte un 3.01 o un 4.01 en mala señal. Sin esto, un simple cambio de bolsa
+# (NYSE -> Nasdaq) o de auditor saldría «en contra». No se busca «disagreement»: la frase
+# estándar es «there were no disagreements».
+MALO_8K = {"3.01": ("not in compliance", "noncompliance", "non-compliance", "deficiency", "minimum bid",
+                    "regain compliance", "delisting determination", "below the minimum"),
+           "4.01": ("resign", "declined to stand", "material weakness")}
+
+
+def mala_8k(cik, a, item, cab):
+    """¿El 8-K cuenta un problema? Lee el texto del apartado (cacheado para siempre)."""
+    os.makedirs(f"{CACHE}/8k", exist_ok=True)
+    ruta = f"{CACHE}/8k/{a[1]}_{item}.json"
+    d = leer(ruta)
+    if d is not None:
+        return d["mal"]
+    txt = pedir(f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{a[1].replace('-', '')}/{a[2]}", cab, "text", intentos=2)
+    time.sleep(0.12)
+    if txt is None:
+        return True                       # sin poder leerlo, se avisa (la app enlaza el informe)
+    txt = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", txt))).lower()
+    i = txt.find("item " + item)
+    tramo = txt[i + 160: i + 3000] if i >= 0 else txt   # sin el título del apartado («failure to satisfy...»)
+    mal = any(k in tramo for k in MALO_8K[item])
+    guardar(ruta, {"mal": mal})
+    return mal
+
+
+def alertas_sub(rec, desde):
+    """{tipo: [[fecha, nº de registro, documento], ...]} de las presentaciones desde `desde`."""
+    out = {}
+    items = rec.get("items") or []
+    for i, forma in enumerate(rec.get("form", [])):
+        f = rec["filingDate"][i]
+        if f < desde:
+            continue
+        tipos = []
+        if forma in FORMAS_TARDE:
+            tipos.append("tarde")
+        elif forma in ("8-K", "8-K/A") and i < len(items):
+            tipos += [ITEMS_8K[x.strip()] for x in (items[i] or "").split(",") if x.strip() in ITEMS_8K]
+        for k in dict.fromkeys(tipos):
+            L = out.setdefault(k, [])
+            if len(L) < 3:
+                L.append([f, rec["accessionNumber"][i], rec["primaryDocument"][i]])
+    return out
+
+
+def frames_sec(cab, tax, tag, unidad, instante, n):
+    """La API «frames» de la SEC trae en UNA consulta el dato de todas las empresas en un
+    trimestre natural. Devuelve {cik: {(año, trimestre): valor}} de los últimos n trimestres
+    (sin contar el actual, que aún no tiene datos). Los datos de periodo (no instante) salen
+    del último informe presentado: el trimestre de hace un año viene ya ajustado por splits."""
+    out, y, q = {}, HOY.year, (HOY.month - 1) // 3 + 1
+    for _ in range(n):
+        q -= 1
+        if q == 0:
+            y, q = y - 1, 4
+        j = pedir(f"https://data.sec.gov/api/xbrl/frames/{tax}/{tag}/{unidad}/CY{y}Q{q}{'I' if instante else ''}.json",
+                  cab, timeout=90, intentos=2)
+        time.sleep(0.12)
+        for d in (j or {}).get("data", []):
+            if isinstance(d.get("val"), (int, float)):
+                out.setdefault(int(d["cik"]), {})[(y, q)] = d["val"]
+    return out
+
+
+def datos_sec(empresas, dias=90):
+    """Todo lo que sale de la SEC: alarmas en sus presentaciones (2 años), acciones emitidas
+    o recompradas en un año, impuestos inciertos y, para las que más interesan (castigadas y
+    top de potencial), compras y ventas de directivos de los últimos `dias`.
+    Devuelve cuántas empresas se han revisado."""
     cab = cab_sec()
     if not cab:
         log("  SEC: sin contacto en", SEC_CONTACTO, "-> se salta")
         return 0
     tick = pedir("https://www.sec.gov/files/company_tickers.json", cab, timeout=60) or {}
     cik = {v["ticker"].replace(".", "-"): v["cik_str"] for v in tick.values()}
+    for e in empresas:
+        if cik.get(e["t"]):
+            e["cik"] = cik[e["t"]]
+
+    # Acciones en circulación (diluidas, media del trimestre) frente al mismo trimestre de hace
+    # un año: >0 emite acciones (diluye al accionista), <0 recompra.
+    acc = frames_sec(cab, "us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding", "shares", False, 7)
+    # Impuestos inciertos: lo que la empresa dedujo y Hacienda podría no aceptarle (y cobrarle).
+    utb = frames_sec(cab, "us-gaap", "UnrecognizedTaxBenefits", "USD", True, 6)
+    for e in empresas:
+        c = int(e.get("cik") or 0)
+        d = acc.get(c) or {}
+        for yq in sorted(d, reverse=True):
+            prev = d.get((yq[0] - 1, yq[1]))
+            if prev and prev > 0 and d[yq] > 0 and 0.1 < d[yq] / prev < 10:   # fuera de eso: error de unidades
+                e["dil"] = d[yq] / prev - 1
+                break
+        u = utb.get(c) or {}
+        if u:
+            e["utb"] = u[max(u)]
+    log(f"  frames: acciones de {len(acc)} empresas, impuestos inciertos de {len(utb)}")
+
+    desde_al = (HOY - dt.timedelta(days=730)).isoformat()
     desde = (HOY - dt.timedelta(days=dias)).isoformat()
-    obj = [e for e in empresas if e.get("cast")]
-    obj += sorted([e for e in empresas if e.get("sc") is not None and not e.get("cast")], key=lambda e: -e["sc"])[:200]
+    obj = {e["t"] for e in empresas if e.get("cast")}
+    obj |= {e["t"] for e in sorted([e for e in empresas if e.get("sc") is not None and not e.get("cast")],
+                                   key=lambda e: -e["sc"])[:200]}
     n = 0
-    for e in obj:
-        c = cik.get(e["t"])
+    for e in empresas:
+        c = e.get("cik")
         if not c:
             continue
         j = pedir(f"https://data.sec.gov/submissions/CIK{int(c):010d}.json", cab, timeout=40)
@@ -612,7 +720,16 @@ def directivos(empresas, dias=90):
             continue
         n += 1
         rec = j.get("filings", {}).get("recent", {})
-        e["cik"] = c
+        al = alertas_sub(rec, desde_al)
+        for k, item in (("cotiza", "3.01"), ("auditor", "4.01")):
+            if k in al:
+                al[k] = [a for a in al[k] if mala_8k(c, a, item, cab)]
+                if not al[k]:
+                    del al[k]
+        if al:
+            e["sec"] = al
+        if e["t"] not in obj:
+            continue
         compras, ventas, compradores, ult = 0.0, 0.0, {}, None
         for i, forma in enumerate(rec.get("form", [])):
             if forma != "4" or rec["filingDate"][i] < desde:
@@ -881,9 +998,10 @@ def modo_completo(salida):
             e["cast"] = True
             e["salud"] = salud_castigada(e)
 
-    log("SEC: compras y ventas de directivos (90 días)")
-    n_sec = directivos(empresas)
-    log(f"  revisadas {n_sec}, con compras de directivos: {sum(1 for e in empresas if (e.get('ins') or {}).get('c'))}")
+    log("SEC: alarmas en sus presentaciones, acciones, impuestos y directivos")
+    n_sec = datos_sec(empresas)
+    log(f"  revisadas {n_sec}, con alarmas: {sum(1 for e in empresas if e.get('sec'))}, "
+        f"con compras de directivos: {sum(1 for e in empresas if (e.get('ins') or {}).get('c'))}")
 
     log("fondos índice y S&P 500 día a día")
     lista_fondos = fondos()
@@ -911,7 +1029,8 @@ def modo_completo(salida):
               "hi", "dd", "cr", "cr_a", "cr_q", "irreg", "rev", "mb", "mo", "mn", "mfcf", "caja", "deuda", "run",
               "pe", "fpe", "ps", "eveb", "div", "beta", "corto",
               "wv", "sc", "comp", "cast", "salud", "ipo_fecha", "ipo_px", "ipo_px_aj", "aj", "ncs", "ipo_usd",
-              "bolsa", "ses", "r_ipo", "r_dia1", "grande", "lockup", "cik", "ins"]
+              "bolsa", "ses", "r_ipo", "r_dia1", "grande", "lockup", "cik", "ins",
+              "ebitda", "de", "cur", "roe", "rec", "nan", "obj", "dil", "utb", "sec"]
     salida_e = []
     for e in empresas:
         o = {}
