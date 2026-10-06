@@ -821,7 +821,7 @@ RE_BUFETE = re.compile(r"(law firm|\bLLP\b|\bLLC\b|encourages|reminds|deadline|l
                        r"Johnson Fistel|Hagens Berman|Bernstein Liebhard|Portnoy|Rigrodsky|Holzer|Block & Leviton|Bleichmar|"
                        r"Labaton|Kahn Swick|ClaimsFiler|Frank R\. Cruz|Howard G\. Smith|Berger Montague|Saxena White|"
                        r"Halper Sadeh|Monteverde|Ademi|Wohl & Fruchter|SBS Law|SueWallSt|opportunity to (lead|join)|"
-                       r"lost money|seeking recovery|investigation alert|shareholder investigation|is investigating|initiates an investigation|P\.C\.|Law (?:Group|Offices?)|attorneys)", re.I)
+                       r"lost money|seeking recovery|investigation alert|shareholder investigation|free (?:case )?evaluation|free consultation|is investigating|initiates an investigation|P\.C\.|Law (?:Group|Offices?)|attorneys)", re.I)
 # Sucesos en una tienda o un local (robos, tiroteos, detenidos): salen con «investigation» o
 # «charged» y no son un problema de la empresa (Home Depot, 2026-10-06)
 # Notas de analistas («Evercore ISI maintains Apple rating amid lawsuit»), trámites de fusiones
@@ -838,7 +838,8 @@ COMUNES = {"gap", "dow", "hub", "ball", "block", "target", "visa", "match", "sna
            "alliance", "lincoln", "liberty", "summit", "pioneer", "premier", "prime", "core", "edge", "frontier", "ally",
            "arch", "crown", "eagle", "fidelity", "genesis", "heritage", "horizon", "insight", "legacy", "matrix", "sun",
            "sterling", "vista", "carrier", "progress", "advance", "masco", "best", "south", "north", "new", "old",
-           "home", "texas", "california", "florida", "boston", "dollar", "family", "simon", "marathon", "las"}
+           "home", "texas", "california", "florida", "boston", "dollar", "family", "simon", "marathon", "las",
+           "jackson", "johnson", "williams", "brown", "smith", "lear", "harris", "kaiser", "hartford", "carter"}
 
 
 def nombre_busqueda(n):
@@ -852,20 +853,19 @@ def nombre_busqueda(n):
 
 
 def claves_busqueda(e):
-    """(frase para Google, patrón que el titular debe contener, alias para ver si demanda ella)."""
+    """(frase para Google, patrones que el titular debe contener, patrón del nombre para ver si demanda ella)."""
     nb = nombre_busqueda(e["n"])
     pal = nb.split()
-    tk = re.escape(e["t"])
-    con_tk = rf"\(\s*(?:[A-Za-z ]+:\s*)?{tk}\s*\)"           # «(NASDAQ: SMCI)» o «(IT)»
+    con_tk = rf"\(\s*(?:[A-Za-z ]+:\s*)?{re.escape(e['t'])}\s*\)"          # «(NASDAQ: SMCI)» o «(IT)»
     if len(pal) == 1 and (len(nb) <= 4 or nb.lower() in COMUNES):
-        completo = re.sub(r"\s*\([^)]*\)", "", e["n"]).strip(" ,.")    # «Gap Inc», «Dow Inc»
-        alias = completo
-        q = f'"{completo}"'
+        # «Gap», «Dow», «Lear», «Visa»: solo con su «Inc/Corp» detrás (o el ticker)
+        txt, fl = rf"\b{re.escape(nb)},? (?:Inc|Corp|Corporation|Co|Company|Group|Holdings|plc)\b", 0
+        q = "(" + " OR ".join(f'"{nb} {x}"' for x in ("Inc", "Corp", "Corporation")) + ")"
     else:
         alias = pal[0] if (len(pal) > 1 and len(pal[0]) >= 4 and pal[0].lower() not in COMUNES) else nb
+        txt, fl = rf"\b{re.escape(alias)}\b", (re.I if len(alias) >= 6 else 0)   # «Meta» sí, «meta-analysis» no
         q = f'"{nb}"'
-    fl = re.I if len(alias) >= 6 else 0                    # «Meta» sí, «meta-analysis» no
-    pat = re.compile(rf"\b{re.escape(alias)}\b", fl)
+    pat = re.compile(txt, fl)
     return q, (pat, re.compile(con_tk)), pat
 
 
@@ -894,7 +894,8 @@ def titulares_legales(e):
         fis, leg = RE_FISCAL.search(ti), RE_LEGAL.search(ti)
         if not (fis or leg) or RE_SUCESO.search(ti) or RE_RUIDO.search(ti):
             continue
-        if re.search(alias.pattern + DEMANDA_ELLA, ti, alias.flags):
+        if (re.search(alias.pattern + DEMANDA_ELLA, ti, alias.flags)
+                or re.search(r"(?i:sued by|suit (?:from|by)|lawsuit (?:from|by))\W+(?:\S+\W+){0,2}?" + alias.pattern, ti, alias.flags)):
             continue                                         # la que demanda es ella
         k = re.sub(r"\W+", "", ti.lower())[:60]
         if k in vistos:
