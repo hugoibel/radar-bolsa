@@ -110,6 +110,9 @@ async function iniciar() {
   ir(VISTAS.includes(v) ? v : ['potencial', 'caidas', 'directivos'].includes(v) ? 'ideas' : 'inicio', false);
   actualizarEnVivo();
   conectarStream();
+  // El futuro según cada empresa (textos de sus informes, ~1,5 MB): se baja después, sin
+  // retrasar la apertura. Si la ficha abierta lo necesitaba, se repinta su sección.
+  cargar('futuro').then(f => { S.fut = f; repintarFuturo(); }).catch(() => { S.fut = { emp: {} }; });
 }
 
 function pintarTodo() {
@@ -426,6 +429,10 @@ function pintarGuia() {
       <dt>Alarmas en la SEC</dt><dd>Avisos que la empresa ha tenido que presentar a la SEC en los últimos 2 años: que rehace sus cuentas porque las anteriores no eran fiables, que presenta tarde su informe, que está en quiebra o que incumple las normas de su bolsa. Son de las peores señales que puede dar una empresa. La app enlaza cada informe para que lo leas.</dd>
       <dt>Cambio de auditor con mala señal</dt><dd>El auditor revisa las cuentas de la empresa. Cambiarlo suele ser rutina; la app solo lo marca cuando el informe habla de «debilidades materiales» (fallos graves en cómo lleva las cuentas) o de que el auditor renuncia.</dd>
       <dt>Impuestos inciertos</dt><dd>Deducciones que la empresa se ha aplicado y que Hacienda (el IRS u otro fisco) podría no aceptarle y cobrarle. Casi todas las grandes tienen algo; la app avisa cuando pasan del 2 % de lo que vale en bolsa, porque ahí suele haber una disputa seria con el fisco.</dd>
+      <dt>El futuro: lo que dice la empresa</dt><dd>Frases de su último informe de resultados a la SEC (de los últimos 5 meses) en las que da previsiones con cifras, en inglés, con un enlace para traducirlas y otro al informe. Si dice que sube, baja o mantiene lo que esperaba, la app lo marca. Muchas empresas, como Apple, no dan previsiones por escrito.</dd>
+      <dt>Lo que esperan los analistas</dt><dd>La media de lo que los analistas creen que crecerán sus ventas y su beneficio este año y el siguiente, y cuánto han cambiado esa previsión en 3 meses. Lo que ya se espera suele estar en el precio: lo que mueve la acción es la sorpresa.</dd>
+      <dt>Gobierno corporativo (ISS)</dt><dd>ISS es la empresa que aconseja a los grandes fondos cómo votar en las juntas. Puntúa de 1 (poco riesgo) a 10 (mucho) el consejo, los sueldos de los directivos, los derechos del accionista y la auditoría. Un 10 suele venir de acciones de doble voto (los fundadores mandan con poco dinero) o de un consejo poco independiente; no quiere decir que la empresa vaya mal.</dd>
+      <dt>En manos de los de dentro</dt><dd>La parte de la empresa que tienen sus directivos, consejeros y fundadores. Si es grande, ganan o pierden contigo.</dd>
       <dt>Demandas e investigaciones</dt><dd>Titulares de Google News de los últimos 90 días que nombran a la empresa y hablan de demandas, investigaciones, multas de competencia o problemas con Hacienda. Se revisan todas las empresas cada día o dos. Se descartan los sucesos en una tienda (un robo en un Walmart) y las demandas que pone la propia empresa. Aparte van los anuncios de bufetes que buscan accionistas tras una caída: no son una demanda en sí. Una demanda no es una condena: las empresas grandes siempre tienen alguna.</dd>
       <dt>Sacar acciones nuevas / recomprar</dt><dd>Si hay más acciones que hace un año, tu trozo de la empresa encoge (se «diluye»): pasa en empresas que necesitan dinero o pagan mucho en acciones a sus empleados. Si hay menos, la empresa ha recomprado las suyas y tu trozo crece.</dd>
       <dt>Caja y deuda</dt><dd>El dinero que tiene en el banco frente a lo que debe. Mucha caja y poca deuda = aguanta mejor una mala racha.</dd>
@@ -891,7 +898,106 @@ function porQue(e) {
   if (fis.length) no.push(['Noticias de un problema con Hacienda', `«${fis[0].ti}»${mas('fis')}.`, fis[0].url]);
   if (leg.length) no.push(['Noticias de demandas o investigaciones', `«${leg[0].ti}»${mas('leg')}. Una demanda no es una condena: muchas se archivan o se pactan.`, leg[0].url]);
   if (buf.length && !leg.length) no.push(['Bufetes buscando accionistas', `«${buf[0].ti}». Suelen aparecer tras una caída fuerte: a veces acaban en una demanda colectiva y a veces no.`, buf[0].url]);
+
+  // Quién la dirige y hacia dónde va (2026-10-06)
+  const g = e.gob;
+  if (g?.g <= 3) si.push(['Bien gobernada', `ISS, el asesor de voto de los grandes fondos, le da poco riesgo: ${g.g}/10 (consejo, sueldos, derechos del accionista y auditoría).`]);
+  else if (g?.g >= 8) {
+    const malos = Object.entries(GOB_NOM).filter(([k]) => g[k] >= 8).map(([, x]) => x.toLowerCase());
+    no.push(['Gobierno corporativo flojo', `ISS le da ${g.g}/10 de riesgo${malos.length ? ', sobre todo en ' + listaY(malos) : ''}. Suele pasar con acciones de doble voto o un consejo poco independiente.`]);
+  }
+  if (e.dpct >= 0.10) si.push(['Sus directivos se juegan su dinero', `Directivos y fundadores tienen el ${pct(e.dpct, 0, false)} de la empresa: si a ti te va mal, a ellos también.`]);
+  const fu = S.fut?.emp?.[e.t];
+  if (fu?.r === 'sube') si.push(['Acaba de subir sus previsiones', `En sus resultados del ${fechaCorta(fu.f)} dijo que espera más de lo que había anunciado.`, fu.u]);
+  else if (fu?.r === 'baja') no.push(['Acaba de bajar sus previsiones', `En sus resultados del ${fechaCorta(fu.f)} recortó lo que esperaba ganar o vender.`, fu.u]);
+  const pv = e.prev;
+  if (pv?.r != null && (pv.na || 0) >= 3) {
+    if (pv.r >= 0.05) si.push(['Los analistas esperan más que hace 3 meses', `Han subido un ${pct(pv.r, 0, false)} el beneficio que esperan para el año que viene.`]);
+    else if (pv.r <= -0.05) no.push(['Los analistas esperan menos que hace 3 meses', `Han bajado un ${pct(-pv.r, 0, false)} el beneficio que esperan para el año que viene.`]);
+  }
   return { si, no, graves };
+}
+
+// ── El futuro y quién la dirige (2026-10-06) ─────────────────────────────────
+// Lo que dice la propia empresa (su último informe de resultados a la SEC), lo que esperan
+// los analistas, lo que invierte en el futuro y su equipo directivo. La «calidad» y la
+// «visión» de un directivo no caben en un número: se enseña lo que sí se puede medir
+// (gobierno según ISS, cuánto se juegan, sus sueldos) y sus propias palabras.
+const GOB_NOM = { c: 'Consejo', s: 'Sueldos', d: 'Derechos del accionista', a: 'Auditoría' };
+const traducir = txt => `https://translate.google.com/?sl=en&tl=es&op=translate&text=${encodeURIComponent(txt.slice(0, 1800))}`;
+const RUMBO_TXT = { sube: ['ok', '↑ Sube sus previsiones'], baja: ['mal', '↓ Baja sus previsiones'], mantiene: ['', '= Mantiene sus previsiones'] };
+
+function medianaSector(e, k) {
+  const v = S.emp.filter(x => x.sector === e.sector && x[k] != null).map(x => x[k]).sort((a, b) => a - b);
+  return v.length >= 8 ? v[Math.floor(v.length / 2)] : null;
+}
+
+function futuroHTML(e) {
+  const fu = S.fut ? S.fut.emp?.[e.t] : undefined;
+  const pv = e.prev || {};
+  let h = '';
+  // 1) Lo que dice la empresa
+  if (fu === undefined) h += '<div class="card muted" style="font-size:13px">Cargando lo que dice la empresa…</div>';
+  else if (fu?.p?.length) {
+    const r = RUMBO_TXT[fu.r];
+    h += `<div class="card fut"><div class="fut-t">Lo que dice la empresa <small>· resultados del ${fechaCorta(fu.f)}</small></div>
+      ${r ? `<span class="tag ${r[0]}">${r[1]}</span>` : ''}
+      ${fu.p.map(x => `<blockquote lang="en">${esc(x)}</blockquote>`).join('')}
+      <div class="fut-l"><a href="${esc(traducir(fu.p.join('\n\n')))}" target="_blank" rel="noopener">Traducir al español ↗</a>
+      <a href="${esc(fu.u)}" target="_blank" rel="noopener">Ver el informe ↗</a></div></div>`;
+  } else {
+    h += `<div class="card muted" style="font-size:13px">${fu ? 'En su último informe de resultados no da previsiones con cifras (muchas, como Apple, solo las cuentan en la conferencia con analistas).' : 'No hay un informe de resultados suyo en la SEC de los últimos 5 meses.'}</div>`;
+  }
+  // 2) Lo que esperan los analistas
+  const fila = (txt, a, b) => (a != null || b != null) ? `<span>${txt}</span><b class="${cls(a)}">${pct(a, 0)}</b><b class="${cls(b)}">${pct(b, 0)}</b>` : '';
+  const filas = fila('Ventas', pv.v0, pv.v1) + fila('Beneficio por acción', pv.b0, pv.b1);
+  if (filas) h += `<div class="card fut"><div class="fut-t">Lo que esperan los analistas${pv.na ? ` <small>· ${pv.na}</small>` : ''}</div>
+    <div class="tabla-p"><span></span><em>Este año</em><em>El que viene</em>${filas}</div>
+    ${pv.r != null ? `<div class="bt"><span>Cambio de lo que esperan, en 3 meses</span><b class="${cls(pv.r)}">${pct(pv.r, 1)}</b></div>` : ''}
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Es su media. Suelen pecar de optimistas, y lo que ya esperan suele estar en el precio: mueve la acción lo que sorprende.</p></div>`;
+  // 3) Lo que invierte en el futuro
+  const inv = [];
+  if (e.id != null) { const m = medianaSector(e, 'id'); inv.push(['Investigación (I+D)', `${pct(e.id, 1, false)} de lo que vende`, m != null ? `En su sector, ${pct(m, 1, false)}` : '']); }
+  if (e.cxv != null) inv.push(['Fábricas, equipos, tiendas…', `${pct(e.cxv, 1, false)} de lo que vende`, e.cxg != null ? `Invierte un ${pct(Math.abs(e.cxg), 0, false)} ${e.cxg >= 0 ? 'más' : 'menos'} que el año anterior` : '']);
+  if (inv.length) h += `<div class="met">${inv.map(([a, b, c]) => `<div><span class="et">${a}</span><b>${b}</b><em>${c}</em></div>`).join('')}</div>`;
+  return `<h3>El futuro</h3>${h}`;
+}
+
+function direccionHTML(e) {
+  const fu = S.fut?.emp?.[e.t];
+  const c = e.ceo, g = e.gob;
+  let h = '';
+  if (c || fu?.c) {
+    const q = fu?.c;
+    h += `<div class="card fut"><div class="fut-t">${esc(c?.n || q?.n)} <small>· ${esc(c?.t || q?.t || '')}</small></div>
+      <div class="muted" style="font-size:13px">${[c?.e ? `${c.e} años` : '', c?.p ? `cobra ${usd(c.p)} al año` : ''].filter(Boolean).join(' · ')}</div>
+      ${q ? `<blockquote lang="en">«${esc(q.q)}»</blockquote><div class="muted" style="font-size:12px">${esc(q.n)}, en sus resultados del ${fechaCorta(fu.f)}</div>
+      <div class="fut-l"><a href="${esc(traducir(q.q))}" target="_blank" rel="noopener">Traducir al español ↗</a></div>` : ''}</div>`;
+  }
+  if (g) {
+    const color = x => x <= 3 ? 'var(--up)' : x <= 7 ? 'var(--warn)' : 'var(--down)';
+    const barra = (txt, x) => `<div class="l"><span>${txt}</span><b style="color:${color(x)}">${x}/10</b></div><div class="barra"><i style="width:${x * 10}%;background:${color(x)}"></i></div>`;
+    h += `<div class="card comp"><div class="fut-t">Gobierno corporativo · riesgo según ISS</div>
+      ${barra('<b>Global</b>', g.g)}${Object.entries(GOB_NOM).filter(([k]) => g[k]).map(([k, n]) => barra(n, g[k])).join('')}
+      <p class="muted" style="font-size:12px;margin:10px 0 0">ISS asesora a los grandes fondos sobre cómo votar en las juntas. 1 = poco riesgo, 10 = mucho: consejo poco independiente, acciones de doble voto (los fundadores mandan con poco capital), sueldos desproporcionados o problemas con la auditoría.</p></div>`;
+  }
+  const d = [];
+  if (e.dpct != null) d.push(['En manos de los de dentro', pct(e.dpct, 1, false), e.dpct >= 0.10 ? 'Mucho en juego: ganan si tú ganas' : 'Directivos, consejeros y fundadores']);
+  if (e.empl) d.push(['Empleados', e.empl.toLocaleString('es-ES'), 'A tiempo completo']);
+  if (d.length) h += `<div class="met">${d.map(([a, b, x]) => `<div><span class="et">${a}</span><b>${b}</b><em>${x}</em></div>`).join('')}</div>`;
+  if (!h) return '';
+  return `<h3>Quién la dirige</h3>${h}
+    <p class="muted" style="font-size:12px;margin:8px 0 0">La calidad y la visión de un equipo directivo no caben en un número. Aquí tienes lo que sí se puede medir y sus propias palabras; para conocerles de verdad, lee su carta anual a los accionistas y escucha cómo explican los malos trimestres. Ninguna de estas medidas, por sí sola, ha demostrado ganar al índice.</p>`;
+}
+
+function repintarFuturo() {
+  const t = $('#hoja.on .tk')?.textContent;
+  const e = t && S.porT[t];
+  if (!e) return;
+  const a = $('#ficha-futuro'), b = $('#ficha-dir'), c = $('#ficha-pq');
+  if (c) c.innerHTML = porQueHTML(e);
+  if (a) a.innerHTML = futuroHTML(e);
+  if (b) b.innerHTML = direccionHTML(e);
 }
 
 function demandasDe(e) {
@@ -977,7 +1083,9 @@ function abrirFicha(t) {
       <div class="kpi"><b class="${cls((e.r1a ?? 0) - (S.res.spy?.r1a ?? 0))}">${e.r1a != null && S.res.spy ? pts(e.r1a - S.res.spy.r1a) : '—'}</b><span>vs SPY 1 año</span></div>
     </div>
     <div id="graf"><div class="muted" style="font-size:13px;padding:30px 0">Cargando gráfica…</div></div>
-    ${porQueHTML(e)}
+    <div id="ficha-pq">${porQueHTML(e)}</div>
+    <div id="ficha-futuro">${futuroHTML(e)}</div>
+    <div id="ficha-dir">${direccionHTML(e)}</div>
     ${e.sc != null ? `<h3>Puntuación de potencial: ${e.sc}/100</h3><div class="card comp">${Object.entries(e.comp).map(([k, v]) => `
       <div class="l"><span>${NOM[k]}</span><b>${v}</b></div><div class="barra"><i style="width:${v}%"></i></div>`).join('')}
       <p class="muted" style="font-size:12px;margin:10px 0 0">Cada barra compara la empresa con las otras ${S.res.n_puntuadas} puntuadas (100 = la mejor). Regla sin probar contra el índice.</p></div>` : ''}

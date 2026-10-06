@@ -324,6 +324,21 @@ h3 { font-size: 15px; margin: 22px 0 10px; color: var(--txt2); text-transform: u
 .pq-an { font-size: 13px; color: var(--txt2); margin: 10px 0 0; line-height: 1.45; }
 .pq-an b { color: var(--txt); }
 
+/* ── el futuro y quién la dirige (2026-10-06) ── */
+.fut + .fut, .fut + .met, .comp + .met, .fut + .comp { margin-top: 10px; }
+.fut-t { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.fut-t small { font-weight: 400; color: var(--txt3); font-size: 12px; }
+.fut blockquote {
+  margin: 8px 0 0; padding: 8px 12px; border-left: 3px solid var(--acc); background: var(--card2);
+  border-radius: 0 10px 10px 0; font-size: 13.5px; line-height: 1.45; color: var(--txt);
+}
+.fut-l { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; margin-top: 8px; }
+.fut .tag { margin-bottom: 2px; }
+.tabla-p { display: grid; grid-template-columns: 1fr auto auto; gap: 7px 16px; align-items: baseline; font-size: 14px; }
+.tabla-p em { font-style: normal; font-size: 12px; color: var(--txt3); text-align: right; }
+.tabla-p b { text-align: right; }
+.tabla-p + .bt { margin-top: 8px; }
+
 /* ── varios ── */
 .vacio { text-align: center; color: var(--txt3); padding: 30px 10px; }
 .cargando { display: grid; place-items: center; min-height: 50vh; color: var(--txt3); gap: 10px; }

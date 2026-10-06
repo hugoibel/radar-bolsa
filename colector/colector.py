@@ -304,7 +304,7 @@ def fundamentales(t):
     if not CRUMB["v"]:
         crumb()
     url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{t}"
-           f"?modules=financialData,price,summaryProfile,earnings,summaryDetail,defaultKeyStatistics"
+           f"?modules=financialData,price,summaryProfile,earnings,summaryDetail,defaultKeyStatistics,assetProfile,earningsTrend"
            f"&crumb={CRUMB['v']}")
     j = pedir(url, intentos=2)
     if j is None:                 # crumb caducado: se renueva una vez
@@ -339,6 +339,45 @@ def fundamentales(t):
          "ebitda": v(fd, "ebitda"), "de": v(fd, "debtToEquity"), "cur": v(fd, "currentRatio"),
          "roe": v(fd, "returnOnEquity"), "rec": v(fd, "recommendationMean"),
          "nan": v(fd, "numberOfAnalystOpinions"), "obj": v(fd, "targetMeanPrice")}
+    # ── quién la dirige y qué se espera (2026-10-06, pedido del usuario) ──
+    # Gobierno corporativo de ISS (1 = poco riesgo, 10 = mucho): global, consejo, sueldos,
+    # derechos del accionista y auditoría. Hub Group, que rehízo sus cuentas, tiene auditoría 10.
+    ap = r.get("assetProfile") or {}
+    gob = {k: ap.get(y) for k, y in (("g", "overallRisk"), ("c", "boardRisk"), ("s", "compensationRisk"),
+                                     ("d", "shareHolderRightsRisk"), ("a", "auditRisk"))}
+    gob = {k: x for k, x in gob.items() if isinstance(x, int) and 1 <= x <= 10}
+    if gob.get("g"):
+        f["gob"] = gob
+    jefe = next((o for o in (ap.get("companyOfficers") or [])
+                 if re.search(r"\bCEO\b|Chief Executive", o.get("title") or "")), None)
+    if jefe:
+        nom = re.sub(r"^(?:Mr|Ms|Mrs|Dr|Prof)\.?\s+", "", jefe.get("name") or "")
+        nom = re.sub(r",?\s*\b(?:M\.?B\.?A|CPA|Ph\.?D|M\.?D|J\.?D|CFA|Esq|FCA|ACA|CA)\b\.?", "", nom).strip(" ,")
+        f["ceo"] = {k: x for k, x in {"n": nom,
+                                      "t": (jefe.get("title") or "").strip(),
+                                      "e": jefe.get("age") if isinstance(jefe.get("age"), int) else None,
+                                      "p": v(jefe, "totalPay")}.items() if x}
+    if isinstance(ap.get("fullTimeEmployees"), int):
+        f["empl"] = ap["fullTimeEmployees"]
+    f["dpct"] = v(ks, "heldPercentInsiders")          # parte de la empresa en manos de directivos y fundadores
+    tr = {x.get("period"): x for x in ((r.get("earningsTrend") or {}).get("trend") or [])}
+    pv = {}
+    for per, suf in (("0y", "0"), ("+1y", "1")):       # este año fiscal y el siguiente
+        x = tr.get(per) or {}
+        for clave, mod in (("v", "revenueEstimate"), ("b", "earningsEstimate")):
+            g = v(x.get(mod) or {}, "growth")
+            if g is not None and -1 < g < 10:
+                pv[clave + suf] = g
+    x = tr.get("+1y") or tr.get("0y") or {}
+    et = x.get("epsTrend") or {}
+    ya, antes = v(et, "current"), v(et, "90daysAgo")
+    if ya and antes and antes > 0:
+        pv["r"] = ya / antes - 1                        # cuánto han cambiado su beneficio esperado en 90 días
+    na = v(x.get("earningsEstimate") or {}, "numberOfAnalysts")
+    if na:
+        pv["na"] = na
+    if pv:
+        f["prev"] = pv
     if f["fcf"] is not None and f["rev"]:
         f["mfcf"] = f["fcf"] / f["rev"]          # caja libre por cada dólar vendido
     # Crecimiento ANUAL (último ejercicio vs el anterior). El de un solo trimestre
@@ -679,6 +718,141 @@ def frames_sec(cab, tax, tag, unidad, instante, n):
     return out
 
 
+# ── el futuro según la propia empresa (2026-10-06) ──────────────────────────
+# Del último informe de resultados (8-K apartado 2.02, anexo 99.1, máx. 150 días): sus
+# previsiones y la frase de su consejero delegado. Probado con 14 empresas: la frase del CEO
+# sale en 11 (Apple, Microsoft, Coca-Cola, Medtronic...); previsiones solo dan las que las
+# publican (Medtronic, UnitedHealth, e.l.f.; Apple no da guía). Caché por informe: un
+# informe presentado no cambia.
+FUTURO = {}
+PREV_RE = re.compile(r"\b(outlook|guidance|expects?|expected|anticipates?|forecasts?|estimates)\b", re.I)
+PERIODO_RE = re.compile(r"\b(20\d\d|full[- ]year|fiscal|annual|next (?:year|quarter)|long[- ]term|(?:third|fourth|second) "
+                        r"quarter|second half|balance of the year|remainder of the year)\b", re.I)
+CIFRA_RE = re.compile(r"(\$\s?\d|\d\s?%|\bpercent\b|\bbillion\b|\bmillion\b|per share|\bEPS\b|\bgrowth\b)", re.I)
+RELLENO_RE = re.compile(r"non-GAAP|GAAP measure|reconcil|forward-looking|safe harbor|risks and uncertainties|"
+                        r"conference call|webcast|intends to discuss|will differ|cautionary|undue reliance|Exhibit 99|"
+                        r"EX-99|press release|investor relations|not able to provide|unable to provide|"
+                        r"unreasonable effort|does not (?:assume|include|reflect)|excludes?\b|following table|table below|as follows", re.I)
+CARGO_RE = re.compile(r"Chief Executive|\bCEO\b|President|Chairman|Chairwoman|\bChair\b|Founder", re.I)
+RUMBO = (("sube", re.compile(r"\b(rais(?:es|ed|ing)|increas(?:es|ed|ing)|boost(?:s|ed)?|lift(?:s|ed)?)\b[^.]{0,60}"
+                             r"\b(outlook|guidance|forecast)", re.I)),
+         ("baja", re.compile(r"\b(lower(?:s|ed|ing)|reduc(?:es|ed|ing)|cut(?:s|ting)?|trim(?:s|med)?)\b[^.]{0,60}"
+                             r"\b(outlook|guidance|forecast)", re.I)),
+         ("mantiene", re.compile(r"\b(reaffirm\w*|reiterat\w*|maintain(?:s|ed)?|confirm(?:s|ed))\b[^.]{0,60}"
+                                 r"\b(outlook|guidance|forecast)", re.I)))
+
+
+def texto_html(h):
+    h = re.sub(r"(?is)<(script|style).*?</\1>", " ", h)
+    h = re.sub(r"(?i)<(br|p|div|tr|li|h\d)[^>]*>", " \n ", h)
+    h = re.sub(r"<[^>]+>", " ", h)
+    return re.sub(r"[ \t\r\f\v]+", " ", html.unescape(h)).replace("\u200b", "")
+
+
+def frases_de(t):
+    out = []
+    for bloque in re.split(r"\s\n\s(?=[A-Z])", re.sub(r"\s*\n\s*", " \n ", t)):
+        out += re.split(r"(?<=[.!?])\s+(?=[A-Z“\"])", re.sub(r"\s+", " ", bloque).strip())
+    return [re.sub(r"^(?:\d+\s*)?[•·▪-]\s*", "", x).strip() for x in out if x.strip()]
+
+
+def cita_ceo(t):
+    t = re.sub(r"\s+", " ", t)
+    for m in re.finditer(r"[“\"]([^”\"]{60,700}?)[,.!]?[”\"],?\s+(?:said|says|stated|commented|added|noted)?\s*"
+                         r"([A-Z][A-Za-z.'\- ]{3,40}?),\s*([^“\"]{0,140})", t):
+        if CARGO_RE.search(m.group(3)[:120]):
+            cargo = re.split(r"\s(?:said|says|stated)\b|;|\.\s", m.group(3))[0].strip(" ,.")
+            return {"q": m.group(1).strip(), "n": m.group(2).strip(), "t": cargo[:90]}
+    m = re.search(r"([A-Z][A-Za-z.'\- ]{3,40}?),\s*([^,“\"]{0,80}(?:Chief Executive|CEO|President|Chairman)[^,“\"]{0,40}),?\s+"
+                  r"(?:said|commented|stated|added)[:,]?\s+[“\"]([^”\"]{60,700})[”\"]", t)
+    if m:
+        return {"q": m.group(3).strip(), "n": m.group(1).strip(), "t": m.group(2).strip()[:90]}
+    return None
+
+
+def recorta(x, n):
+    return x if len(x) <= n else x[:n].rsplit(" ", 1)[0] + "…"
+
+
+def futuro_8k(cik, fecha, acc, prim, cab):
+    os.makedirs(f"{CACHE}/8k_res", exist_ok=True)
+    ruta = f"{CACHE}/8k_res/{acc}_v5.json"
+    d = leer(ruta)
+    if d is not None:
+        return d or None
+    base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}"
+    idx = pedir(f"{base}/index.json", cab, timeout=40, intentos=2)
+    time.sleep(0.12)
+    if idx is None:
+        return None                                   # sin guardar: se reintenta otro día
+    items = [x for x in (idx.get("directory") or {}).get("item", [])
+             if x.get("name", "").lower().endswith((".htm", ".html")) and x["name"] != prim
+             and "index" not in x["name"].lower() and not re.match(r"R\d+\.htm", x["name"])]
+
+    def prio(x):
+        n = x["name"].lower()
+        return (0 if re.search(r"99[-_.]?0?1(?!\d)|ex-?991|exhibit-?991", n) else
+                1 if re.search(r"ex-?99|exhibit-?99|press|release|earn|pr\d*\.htm", n) else 2,
+                -int(x.get("size") or 0))
+    items.sort(key=prio)
+    doc = items[0]["name"] if items else prim
+    h = pedir(f"{base}/{doc}", cab, "text", timeout=60, intentos=2)
+    time.sleep(0.12)
+    if h is None:
+        return None
+    t = texto_html(h)
+    F = frases_de(t)
+    prev = []
+    for k, x in enumerate(F):                         # 1º lo que va bajo un título «Outlook / Guidance»
+        if re.match(r"^(?:[A-Z][\w\-]*\s){0,4}(?:Outlook|Guidance)\b", x):
+            prev = [g for g in F[k:k + 6] if CIFRA_RE.search(g) and not RELLENO_RE.search(g) and 40 < len(g) < 420
+                    and (PREV_RE.search(g) or re.search(r"\b(range|between|approximately|to be)\b", g, re.I))][:6]
+            if prev:
+                break
+    if not prev:
+        prev = [x for x in F if PREV_RE.search(x) and PERIODO_RE.search(x) and CIFRA_RE.search(x)
+                and not RELLENO_RE.search(x) and 40 < len(x) < 420][:6]
+    def palabras(x):
+        return set(re.findall(r"[a-z0-9$.]+", x.lower()))
+    unicas = []
+    for x in prev:
+        if all(len(palabras(x) & palabras(y)) / max(1, min(len(palabras(x)), len(palabras(y)))) < 0.6 for y in unicas):
+            unicas.append(x)
+    prev = unicas
+    prev.sort(key=lambda x: 0 if re.search(r"\b(expects?|expected|will|now expects?|outlook for|guidance for|to range|to be)\b",
+                                         x, re.I) else 1)
+    rumbo = None
+    zona = re.sub(r"\s+", " ", t[:4000]) + " " + " ".join(prev)
+    for nombre, rx in RUMBO:
+        if rx.search(zona):
+            rumbo = nombre
+            break
+    m = re.search(r"(?:guidance|outlook|forecast)(?:[^.]|\.(?=\d)){0,80}?\bto \$?(\d[\d,]*\.?\d*)(?:[^.]|\.(?=\d)){0,40}?"
+                  r"\bfrom \$?(\d[\d,]*\.?\d*)", zona, re.I)
+    if m:
+        a_, de_ = (float(x.replace(",", "")) for x in m.groups())
+        if de_ > 0 and abs(a_ / de_ - 1) > 0.005:
+            rumbo = "sube" if a_ > de_ else "baja"
+    c = cita_ceo(t)
+    d = {"f": fecha, "u": f"{base}/{doc}"}
+    if prev:
+        d["p"] = [recorta(x, 420) for x in prev[:3]]
+    if c:
+        d["c"] = {"q": recorta(c["q"], 520), "n": c["n"], "t": c["t"]}
+    if rumbo:
+        d["r"] = rumbo
+    d = d if ("p" in d or "c" in d) else {}
+    guardar(ruta, d)
+    return d or None
+
+
+def frames_anual(cab, tag, y):
+    """Dato anual (año natural `y`, o el ejercicio que más se le acerca) de todas las empresas."""
+    j = pedir(f"https://data.sec.gov/api/xbrl/frames/us-gaap/{tag}/USD/CY{y}.json", cab, timeout=90, intentos=2)
+    time.sleep(0.12)
+    return {int(x["cik"]): x["val"] for x in (j or {}).get("data", []) if isinstance(x.get("val"), (int, float))}
+
+
 def datos_sec(empresas, dias=90):
     """Todo lo que sale de la SEC: alarmas en sus presentaciones (2 años), acciones emitidas
     o recompradas en un año, impuestos inciertos y, para las que más interesan (castigadas y
@@ -712,7 +886,22 @@ def datos_sec(empresas, dias=90):
         # presentó $633 M con $562 M de ventas y $0 el año anterior)
         if u and not (e.get("rev") and u[max(u)] > 0.5 * e["rev"]):
             e["utb"] = u[max(u)]
-    log(f"  frames: acciones de {len(acc)} empresas, impuestos inciertos de {len(utb)}")
+    # Lo que invierte en el futuro: investigación (I+D) y fábricas/equipos, del último año natural
+    y1 = HOY.year - 1
+    idd = frames_anual(cab, "ResearchAndDevelopmentExpense", y1)
+    cx1 = frames_anual(cab, "PaymentsToAcquirePropertyPlantAndEquipment", y1)
+    cx0 = frames_anual(cab, "PaymentsToAcquirePropertyPlantAndEquipment", y1 - 1)
+    for e in empresas:
+        c = int(e.get("cik") or 0)
+        rev = e.get("rev") or 0
+        if rev > 0 and 0 < (idd.get(c) or 0) < 3 * rev:
+            e["id"] = idd[c] / rev
+        if rev > 0 and 0 < (cx1.get(c) or 0) < 3 * rev:
+            e["cxv"] = cx1[c] / rev
+            if (cx0.get(c) or 0) > 0 and 0.1 < cx1[c] / cx0[c] < 10:
+                e["cxg"] = cx1[c] / cx0[c] - 1
+    log(f"  frames: acciones de {len(acc)} empresas, impuestos inciertos de {len(utb)}, "
+        f"I+D de {len(idd)}, inversión en equipos de {len(cx1)}")
 
     desde_al = (HOY - dt.timedelta(days=730)).isoformat()
     desde = (HOY - dt.timedelta(days=dias)).isoformat()
@@ -738,6 +927,13 @@ def datos_sec(empresas, dias=90):
                     del al[k]
         if al:
             e["sec"] = al
+        lim = (HOY - dt.timedelta(days=150)).isoformat()
+        i = next((i for i, forma in enumerate(rec.get("form", [])) if forma in ("8-K", "8-K/A")
+                  and "2.02" in ((rec.get("items") or [""] * (i + 1))[i] or "")), None)
+        if i is not None and rec["filingDate"][i] >= lim:
+            fu = futuro_8k(c, rec["filingDate"][i], rec["accessionNumber"][i], rec["primaryDocument"][i], cab)
+            if fu:
+                FUTURO[e["t"]] = fu
         if e["t"] not in obj:
             continue
         compras, ventas, compradores, ult = 0.0, 0.0, {}, None
@@ -1163,8 +1359,12 @@ def modo_completo(salida):
             e["cast"] = True
             e["salud"] = salud_castigada(e)
 
-    log("SEC: alarmas en sus presentaciones, acciones, impuestos y directivos")
+    log("SEC: alarmas en sus presentaciones, acciones, impuestos, futuro y directivos")
+    FUTURO.clear()
     n_sec = datos_sec(empresas)
+    guardar(f"{salida}/futuro.json", {"act": ahora(), "emp": FUTURO})
+    log(f"  futuro: {len(FUTURO)} con su último informe de resultados "
+        f"({sum(1 for x in FUTURO.values() if 'p' in x)} con previsiones, {sum(1 for x in FUTURO.values() if 'c' in x)} con frase del CEO)")
     log(f"  revisadas {n_sec}, con alarmas: {sum(1 for e in empresas if e.get('sec'))}, "
         f"con compras de directivos: {sum(1 for e in empresas if (e.get('ins') or {}).get('c'))}")
 
@@ -1195,7 +1395,8 @@ def modo_completo(salida):
               "pe", "fpe", "ps", "eveb", "div", "beta", "corto",
               "wv", "sc", "comp", "cast", "salud", "ipo_fecha", "ipo_px", "ipo_px_aj", "aj", "ncs", "ipo_usd",
               "bolsa", "ses", "r_ipo", "r_dia1", "grande", "lockup", "cik", "ins",
-              "ebitda", "de", "cur", "roe", "rec", "nan", "obj", "dil", "utb", "sec"]
+              "ebitda", "de", "cur", "roe", "rec", "nan", "obj", "dil", "utb", "sec",
+              "gob", "ceo", "empl", "dpct", "prev", "id", "cxv", "cxg"]
     salida_e = []
     for e in empresas:
         o = {}
