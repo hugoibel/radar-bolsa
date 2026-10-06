@@ -12,7 +12,16 @@ flock -n 9 || { echo "$(date -u +%F\ %T) ya hay una pasada en marcha" >> "$LOG";
 cd "$REPO" || exit 1
 git pull -q --rebase origin main >> "$LOG" 2>&1
 echo "=== $(date -u +%F\ %T) UTC — $MODO" >> "$LOG"
-nice -n 19 ionice -c3 python3 -u /root/radar_bolsa/colector.py "$MODO" --salida "$REPO/data" >> "$LOG" 2>&1 || exit 1
+# 2026-10-06: si una pasada falla, email (como mucho uno cada 12 h) para que los datos no se
+# queden viejos sin que nadie se entere; la app además marca ⚠️ si tienen más de 60 h.
+if ! nice -n 19 ionice -c3 python3 -u /root/radar_bolsa/colector.py "$MODO" --salida "$REPO/data" >> "$LOG" 2>&1; then
+  ST=/root/radar_bolsa/.ultimo_aviso_fallo
+  if [ ! -f "$ST" ] || [ $(( $(date +%s) - $(stat -c %Y "$ST") )) -gt 43200 ]; then
+    touch "$ST"
+    /usr/bin/python3 /root/avisar.py "Radar Bolsa: fallo en la pasada $MODO" "$(tail -25 "$LOG")" > /dev/null 2>&1
+  fi
+  exit 1
+fi
 
 git add data
 if ! git diff --cached --quiet; then

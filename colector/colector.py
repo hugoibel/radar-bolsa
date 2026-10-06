@@ -1147,6 +1147,153 @@ def demandas(salida, lista, tanda=200):
     log(f"  demandas: {hechas} revisadas en esta pasada, {mirados}/{len(lista)} con revisión, {len(pub)} con titulares")
 
 
+# ── las que van a salir a bolsa: su folleto en la SEC (2026-10-06) ───────────
+# Pedido del usuario: «a las que están y a las por salir». Aún no cotizan (no hay precios ni
+# fundamentales en Yahoo), pero su folleto (S-1/F-1, o 1-A en las de Regulación A) cuenta
+# lo que importa. Probado con 12 folletos reales: la duda del auditor sale en Med-X,
+# Retension...; en City Therapeutics era la frase estándar «evaluated whether there are
+# conditions... that raise substantial doubt» -> se descarta con su contexto. «Variable
+# interest entities» sale en notas contables de biotecnológicas de EE. UU. -> la alerta de
+# estructura china solo si además opera en China.
+FORMAS_FOLLETO = ("S-1", "S-1/A", "F-1", "F-1/A", "1-A", "1-A/A")
+PALABRAS_NUM = {"ten": 10, "twenty": 20, "fifty": 50, "five": 5, "fifteen": 15, "twenty-five": 25, "one hundred": 100,
+                "three": 3, "four": 4, "six": 6, "eight": 8, "thirty": 30, "forty": 40}
+
+
+def cik_por_nombre(n, cab):
+    """CIK de una empresa que aún no cotiza (no está en company_tickers): buscador de la SEC."""
+    ruta = f"{CACHE}/folleto/cik_{re.sub(r'[^a-z0-9]+', '_', n.lower())[:60]}.json"
+    d = leer(ruta)
+    if d and d.get("f", "") >= (HOY - dt.timedelta(days=30)).isoformat():
+        return d.get("cik")
+    limpio = re.sub(r"[^\w&\- ]", " ", n).strip()
+    cik = None
+    for q in (limpio, re.sub(r"\s+(Inc|Corp|Corporation|Ltd|Limited|LLC|plc|Co|Holdings?)\s*$", "", limpio, flags=re.I)):
+        t = pedir("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=" + urllib.parse.quote(q.strip())
+                  + "&type=&dateb=&owner=include&count=40&output=atom", cab, "text", intentos=2)
+        time.sleep(0.15)
+        ciks = list(dict.fromkeys(re.findall(r"<cik>(\d+)</cik>", t or "")))
+        if len(ciks) == 1:
+            cik = int(ciks[0])
+            break
+    guardar(ruta, {"cik": cik, "f": HOY.isoformat()})
+    return cik
+
+
+def analiza_folleto(t):
+    r = {}
+    tl = t.lower()
+    # para qué quiere el dinero (apartado «Use of Proceeds»)
+    for m in re.finditer(r"use of proceeds", tl):
+        if re.search(r"\b(?:we|the company) (?:currently )?(?:intend|expect|plan|anticipate)s? to use", tl[m.end(): m.end() + 3000]):
+            fr = re.split(r"(?<=[.;])\s+(?=[A-Z])", t[m.end(): m.end() + 4000])
+            uso = [x.strip() for x in fr if 40 < len(x) < 450 and re.search(
+                r"\b(intend|expect|plan|anticipate)s? to use|\bto (?:fund|repay|finance|expand|develop|acquire|build)\b|"
+                r"working capital|general corporate purposes", x, re.I)]
+            if uso:
+                r["uso"] = uso[:3]
+            break
+    # dilución inmediata frente al precio de salida (solo si el folleto ya trae cifras)
+    m = re.search(r"(?:immediate )?(?:and substantial )?dilution (?:of|in (?:the )?(?:pro forma )?(?:as adjusted )?net tangible book value of) "
+                  r"(?:approximately )?\$\s?(\d[\d,]*\.?\d*) per (?:share|ADS)", t, re.I)
+    p = re.search(r"(?:assumed )?(?:initial public )?offering price of \$\s?(\d[\d,]*\.?\d*) per (?:share|ADS)", t, re.I)
+    if m and p:
+        a, b = float(m.group(1).replace(",", "")), float(p.group(1).replace(",", ""))
+        if b > 0 and 0 < a / b < 1:
+            r["dil"] = round(a / b, 3)
+            r["pxs"] = b
+    # doble voto y empresa controlada
+    m = re.search(r"Class B (?:common stock|ordinary shares?|shares?)[^.]{0,250}?\b(\d+|"
+                  + "|".join(PALABRAS_NUM) + r")\s+votes? (?:per|for each) (?:share|ordinary share)", t, re.I)
+    if m:
+        v = m.group(1).lower()
+        n = PALABRAS_NUM.get(v) or (int(v) if v.isdigit() else 0)
+        if n > 1:
+            r["votos"] = n
+    # «empresa controlada» solo si dice que LO SERÁ (no «we will not be a controlled company»)
+    if re.search(r"(?:we|the company) (?:will be|are|is|expect to be|will qualify as|qualify as|are considered|will be considered|"
+                 r"will be deemed|are deemed)\s+(?:to be\s+)?(?:a\s+)?[\"“”']?controlled company", t, re.I):
+        r["contr"] = True
+    # el auditor duda de que sobreviva (no el «could raise» de los riesgos ni el «evaluated whether»)
+    for m in re.finditer(r"raises? substantial doubt about (?:the Company[’']s|its|our) ability to continue as a going concern", t, re.I):
+        antes, despues = t[max(0, m.start() - 160): m.start()], t[m.end(): m.end() + 160]
+        if not re.search(r"whether|evaluat|\bif\b|could|\bmay\b|might|would|absent|unless", antes, re.I) \
+                and not re.search(r"alleviat", despues, re.I):
+            r["gc"] = True
+            break
+    if re.search(r"history of (?:net |operating )?losses|(?:have|has) incurred (?:significant |substantial |recurring )?(?:net )?losses|"
+                 r"(?:have|has) not (?:yet )?(?:been|achieved) profitab", t, re.I):
+        r["perd"] = True
+    if len(re.findall(r"\bPRC\b|People[’']s Republic of China", t)) > 30:
+        r["china"] = True
+        if re.search(r"(?<!no )(?<!any holdings in )variable interest entit", t, re.I):
+            r["vie"] = True
+    if re.search(r"emerging growth company", t, re.I):
+        r["egc"] = True
+    # consejero delegado (tabla «Name Age Position»)
+    m = re.search(r"([A-Z][A-Za-z.'\-]+(?: [A-Z][A-Za-z.'\-]+){1,4})\s+(\d{2})\s+((?:[\w,\-]+ ){0,6}?Chief Executive Officer"
+                  r"(?:,? (?:and|&) (?:Director|Chairman(?: of the Board)?|President|Chair|Chairwoman))?)", t)
+    if m and 25 <= int(m.group(2)) <= 90:
+        nom = re.sub(r"^(?:(?:Name|Age|Position|Executive|Officers?|Directors?|and|Key|Employees?|Management|Title)\s+)+", "", m.group(1))
+        if len(nom.split()) >= 2:
+            r["ceo"] = {"n": nom, "e": int(m.group(2)), "t": m.group(3).strip(" ,")[:90]}
+    return r
+
+
+def folleto(x, cab):
+    cik = cik_por_nombre(x["n"], cab)
+    if not cik:
+        return None
+    sub = pedir(f"https://data.sec.gov/submissions/CIK{cik:010d}.json", cab, timeout=40)
+    time.sleep(0.12)
+    rec = ((sub or {}).get("filings") or {}).get("recent") or {}
+    i = next((i for i, f in enumerate(rec.get("form", [])) if f in FORMAS_FOLLETO), None)
+    if i is None:
+        return {"cik": cik}
+    acc, doc = rec["accessionNumber"][i], rec["primaryDocument"][i]
+    url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc.replace('-', '')}/{doc}"
+    ruta = f"{CACHE}/folleto/{acc}_v2.json"
+    d = leer(ruta)
+    if d is None:
+        h = pedir(url, cab, "text", timeout=120, intentos=2)
+        time.sleep(0.12)
+        if h is None:
+            return {"cik": cik}
+        d = analiza_folleto(texto_html(h).replace("\n", " "))
+        for k in ("uso",):
+            if k in d:
+                d[k] = [recorta(re.sub(r"\s+", " ", u), 450) for u in d[k]]
+        guardar(ruta, d)
+    return {"cik": cik, "form": rec["form"][i], "f": rec["filingDate"][i], "u": url, **d}
+
+
+def salidas(salida, prox, reg):
+    """data/salidas.json: lo del folleto de cada próxima salida y de las registradas (sin SPACs)."""
+    cab = cab_sec()
+    if not cab:
+        return
+    os.makedirs(f"{CACHE}/folleto", exist_ok=True)
+    viejo = (leer(f"{salida}/salidas.json", {}) or {}).get("emp", {})
+    out = {}
+    for x in prox + reg:
+        k = x["t"] or x["n"]
+        if x["spac"] or k in out:
+            continue
+        d = folleto(x, cab) or {}
+        dem = (viejo.get(k) or {}).get("dem")
+        if dem is None or (viejo.get(k) or {}).get("dem_f", "") < HOY.isoformat():   # demandas: una vez al día
+            r = titulares_legales({"n": x["n"], "t": x["t"] or "ZZZZZ"})
+            dem = r if r is not None else dem
+            d["dem_f"] = HOY.isoformat()
+        else:
+            d["dem_f"] = viejo[k].get("dem_f")
+        if dem and dem.get("it"):
+            d["dem"] = dem
+        out[k] = d
+    guardar(f"{salida}/salidas.json", {"act": ahora(), "emp": out})
+    log(f"  salidas: {len(out)} con folleto revisado, {sum(1 for v in out.values() if v.get('gc'))} con duda del auditor")
+
+
 # ── temas y puntuación ───────────────────────────────────────────────────────
 def tema_de(e):
     sub = e.get("sub") or ""
@@ -1245,6 +1392,9 @@ def modo_rapido(salida):
     ipos = leer(f"{salida}/ipos.json", {}) or {}
     ipos.update(proximas=prox, registradas=reg, medido=MEDIDO["ipo"], act=ahora())
     guardar(f"{salida}/ipos.json", ipos)
+
+    log("folletos de las próximas salidas a bolsa")
+    salidas(salida, prox, reg)
 
     log("noticias")
     lista = (leer(f"{salida}/empresas.json", {}) or {}).get("e", [])

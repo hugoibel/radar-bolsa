@@ -91,10 +91,10 @@ async function cargar(nombre) {
 
 async function iniciar() {
   try {
-    const [res, emp, ipos, not, fon, med, dem] = await Promise.all([cargar('resumen'), cargar('empresas'), cargar('ipos'),
+    const [res, emp, ipos, not, fon, med, dem, sal] = await Promise.all([cargar('resumen'), cargar('empresas'), cargar('ipos'),
       cargar('noticias').catch(() => null), cargar('fondos').catch(() => null), cargar('medido').catch(() => null),
-      cargar('demandas').catch(() => null)]);
-    S.res = res; S.emp = emp.e; S.ipos = ipos; S.not = not; S.fondos = fon; S.bt = med; S.dem = dem;
+      cargar('demandas').catch(() => null), cargar('salidas').catch(() => null)]);
+    S.res = res; S.emp = emp.e; S.ipos = ipos; S.not = not; S.fondos = fon; S.bt = med; S.dem = dem; S.sal = sal;
     S.emp.forEach(e => { S.porT[e.t] = e; });
   } catch (err) {
     $('#cargando').innerHTML = `<div class="vacio">No se pudieron cargar los datos.<br><small>${esc(err.message)}</small><br><br><button class="btn" onclick="location.reload()">Reintentar</button></div>`;
@@ -250,6 +250,7 @@ function ipoProxHTML(x) {
       <div class="det muted" style="font-size:12.5px">${esc(x.bolsa || '')} · Precio previsto ${x.rango ? '$' + esc(x.rango) : '—'} · Oferta ${usd(x.usd)}</div></div>
       ${f ? `<div class="fecha"><b>${f.getDate()}</b><span>${f.toLocaleDateString('es-ES', { month: 'short' })}</span></div>` : ''}</div>
     <div class="stat">${x.spac ? '<span class="tag ojo">SPAC · empresa «cheque en blanco»</span> Todavía no tiene negocio: compra otra empresa después.' : statIPO(grande)}</div>
+    ${x.spac ? '' : chipsSalida(x)}
   </div>`;
 }
 
@@ -284,8 +285,8 @@ function pintarIpos() {
     cuerpo = rec.slice(0, 120).map(ipoRecHTML).join('');
   } else {
     cuerpo = `<p class="sub">Empresas que han pedido permiso a la SEC para salir a bolsa. Aún sin fecha ni precio.</p>` +
-      (reg.length ? reg.map(x => `<div class="fila" style="cursor:default"><div class="info"><div class="nom">${x.t ? `<span class="tk">${esc(x.t)}</span>` : ''}${esc(x.n)}</div>
-        <div class="det">Registrada ${esc(x.fecha || '')} · ${usd(x.usd)} ${x.spac ? '· SPAC' : ''}</div></div>
+      (reg.length ? reg.map(x => `<div class="fila" ${x.spac ? 'style="cursor:default"' : `data-ipo="${esc(x.t || x.n)}"`}><div class="info"><div class="nom">${x.t ? `<span class="tk">${esc(x.t)}</span>` : ''}${esc(x.n)}</div>
+        <div class="det">Registrada ${esc(x.fecha || '')} · ${usd(x.usd)} ${x.spac ? '· SPAC' : ''}</div>${chipsSalida(x)}</div>
         <a class="btn" style="font-size:12.5px;padding:7px 10px" target="_blank" rel="noopener"
            href="https://www.sec.gov/edgar/search/#/q=${encodeURIComponent('"' + x.n.replace(/[,.]?\s+(Inc|Corp|Ltd|Limited|Holdings)\.?$/i, '') + '"')}&forms=S-1,F-1,S-1%2FA,F-1%2FA">Folleto SEC</a></div>`).join('') : '<div class="vacio">Sin registros recientes.</div>');
   }
@@ -1127,6 +1128,90 @@ function abrirFicha(t) {
   };
   grafica(e.t);
 }
+// ── Fichas de las que van a salir a bolsa (2026-10-06) ───────────────────────
+// Aún no cotizan: no hay precios ni cifras de Yahoo. Lo que hay sale de su folleto en la
+// SEC (S-1/F-1/1-A), que el colector lee cada 4 horas: duda del auditor, pérdidas, doble
+// voto, empresa controlada, estructura china, dilución, para qué quieren el dinero y quién
+// manda; más los titulares de demandas.
+function porQueSalida(x, d) {
+  const si = [], no = [], graves = [];
+  const m = S.ipos.medido, grande = (x.usd || 0) >= 1e8;
+  const enlace = d.u || null;
+  if (d.gc) graves.push(['Su auditor duda de que sobreviva', 'El folleto dice que sus pérdidas y su falta de dinero «plantean dudas sustanciales» sobre si podrá seguir funcionando.', enlace]);
+  if (d.vie) graves.push(['No comprarías la empresa de verdad', 'Estructura VIE: comprarías una sociedad en el extranjero con contratos sobre la empresa china, no la empresa. Si China los anula, puedes perderlo todo.', enlace]);
+  if (grande) si.push(['Salida grande', `Las grandes aguantan mucho mejor que las pequeñas: de mediana ${pctN(m.grandes.mediana_1a, 0)} a un año, frente a ${pctN(m.pequenas.mediana_1a, 0)} (lo medimos).`]);
+  else no.push(['Salida pequeña', `De mediana, las salidas pequeñas pierden un ${nf(-m.pequenas.mediana_1a, 0)} % en su primer año y solo el ${m.pequenas.ganan_1a} % gana dinero (lo medimos).`]);
+  if (x.usd && x.usd < 25e6) no.push(['Oferta diminuta', `Solo ${usd(x.usd)}: con tan pocas acciones, unos pocos pueden mover el precio a su antojo.`]);
+  if (d.perd) no.push(['Pierde dinero', 'El propio folleto reconoce un historial de pérdidas o que aún no gana dinero.']);
+  if (d.votos) no.push(['Los fundadores mandarán', `Sus acciones valdrán ${d.votos} votos cada una; las tuyas, 1. Decidirán ellos aunque tengan poco dinero puesto.`]);
+  if (d.contr) no.push(['Tendrá un dueño que manda', 'Será una «empresa controlada»: alguien tendrá más de la mitad de los votos y podrá saltarse normas de independencia del consejo.']);
+  if (d.china && !d.vie) no.push(['Su negocio está en China', 'El gobierno chino puede cambiar las reglas de su negocio o de su cotización de un día para otro.']);
+  if (d.dil) no.push(['Pagas mucho más que los de dentro', `A ${precio(d.pxs)} por acción, nada más comprar tu acción vale en libros un ${pct(d.dil, 0, false)} menos (dilución inmediata).`]);
+  const leg = (d.dem?.it || []).filter(z => z.k !== 'buf');
+  if (leg.length) no.push([leg[0].k === 'fis' ? 'Noticias de un problema con Hacienda' : 'Noticias de demandas o investigaciones', `«${leg[0].ti}»`, leg[0].url]);
+  return { si, no, graves };
+}
+
+function chipsSalida(x) {
+  const d = S.sal?.emp?.[x.t || x.n];
+  if (!d) return '';
+  const c = [];
+  if (d.gc) c.push('<span class="tag mal">🚩 El auditor duda</span>');
+  if (d.vie) c.push('<span class="tag mal">🚩 Estructura china VIE</span>');
+  else if (d.china) c.push('<span class="tag ojo">China</span>');
+  if (d.votos) c.push(`<span class="tag ojo">Doble voto ×${d.votos}</span>`);
+  if (d.contr) c.push('<span class="tag ojo">Empresa controlada</span>');
+  if (d.perd) c.push('<span class="tag">Pierde dinero</span>');
+  return c.length ? `<div style="margin-top:6px">${c.join('')}</div>` : '';
+}
+
+function abrirSalida(k) {
+  const x = [...(S.ipos.proximas || []), ...(S.ipos.registradas || [])].find(z => (z.t || z.n) === k);
+  if (!x) return;
+  const d = S.sal?.emp?.[k] || {};
+  const prox = (S.ipos.proximas || []).includes(x);
+  const f = fechaUS(x.fecha);
+  const item = ([t, dsc, u]) => `<div class="pq-i"><b>${esc(t)}</b><span>${esc(dsc)}</span>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${u.includes('sec.gov') ? 'Ver el folleto en la SEC' : 'Leer la noticia'} ↗</a>` : ''}</div>`;
+  const { si, no, graves } = porQueSalida(x, d);
+  const buscar = `https://www.sec.gov/edgar/search/#/q=${encodeURIComponent('"' + x.n.replace(/[,.]?\s+(Inc|Corp|Ltd|Limited|Holdings)\.?$/i, '') + '"')}&forms=S-1,F-1,S-1%2FA,F-1%2FA`;
+  const uso = d.uso || [];
+  const dem = d.dem?.it || [];
+  const tag = { fis: '<span class="tag mal">Hacienda</span>', leg: '<span class="tag ojo">Demanda o investigación</span>', buf: '<span class="tag">Bufete</span>' };
+  $('#hoja').innerHTML = `<div class="asa"></div>
+    <div class="titulo"><h2>${x.t ? `<span class="tk">${esc(x.t)}</span>` : ''}${esc(x.n)}</h2>
+      <button class="icobtn" id="cerrar" aria-label="Cerrar">✕</button></div>
+    <div class="muted" style="font-size:13px;margin-top:4px">${prox ? `Sale a bolsa${f ? ' el ' + f.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : ''}` : `Registrada en la SEC el ${esc(x.fecha || '')} · aún sin fecha`}${x.bolsa ? ' · ' + esc(x.bolsa) : ''}</div>
+    <div class="kpis" style="margin-top:10px">
+      <div class="kpi"><b>${x.rango ? '$' + esc(x.rango) : (d.pxs ? precio(d.pxs) : '—')}</b><span>Precio previsto</span></div>
+      <div class="kpi"><b>${usd(x.usd)}</b><span>Dinero que pide</span></div>
+      ${d.form ? `<div class="kpi"><b>${esc(d.form)}</b><span>Folleto del ${fechaCorta(d.f)}</span></div>` : ''}
+    </div>
+    ${x.spac ? '<div class="aviso" style="margin-top:12px"><b>SPAC:</b> empresa «cheque en blanco» sin negocio propio; compra otra empresa más adelante. Muy arriesgadas.</div>' : ''}
+    <h3>¿Por qué sí y por qué no?</h3>
+    ${graves.length ? `<div class="pq-graves"><div class="pq-t">🚩 Alarmas en su folleto</div>${graves.map(item).join('')}</div>` : ''}
+    <div class="pq">
+      <div class="pq-col si"><div class="pq-t">👍 A favor <span>${si.length}</span></div>${si.map(item).join('') || '<div class="pq-vacio">Nada destacable a favor en su folleto.</div>'}</div>
+      <div class="pq-col no"><div class="pq-t">👎 En contra <span>${no.length + graves.length}</span></div>${no.map(item).join('') || '<div class="pq-vacio">Nada destacable en contra.</div>'}</div>
+    </div>
+    ${d.form ? '' : '<p class="muted" style="font-size:12.5px;margin:8px 0 0">Todavía no he podido leer su folleto en la SEC (a veces el nombre no coincide o aún no está publicado). Se reintenta cada 4 horas.</p>'}
+    <h3>Para qué quiere el dinero</h3>
+    ${uso.length ? `<div class="card fut">${uso.map(z => `<blockquote lang="en">${esc(z)}</blockquote>`).join('')}
+      <div class="fut-l"><a href="${esc(traducir(uso.join('\n\n')))}" target="_blank" rel="noopener">Traducir al español ↗</a>${d.u ? `<a href="${esc(d.u)}" target="_blank" rel="noopener">Ver el folleto ↗</a>` : ''}</div></div>`
+      : '<div class="card muted" style="font-size:13px">No he encontrado el apartado «Use of Proceeds» en su folleto.</div>'}
+    <h3>Quién la dirige</h3>
+    <div class="card fut">${d.ceo ? `<div class="fut-t">${esc(d.ceo.n)} <small>· ${esc(d.ceo.t)}</small></div><div class="muted" style="font-size:13px">${d.ceo.e} años · según su folleto</div>` : '<div class="muted" style="font-size:13px">No he sacado el nombre de su consejero delegado del folleto.</div>'}
+      <div style="margin-top:8px">${d.votos ? `<span class="tag ojo">Acciones de doble voto: ×${d.votos}</span>` : ''}${d.contr ? '<span class="tag ojo">Empresa controlada</span>' : ''}${d.egc ? '<span class="tag">«Emerging growth company»: le dejan informar menos</span>' : ''}</div></div>
+    ${dem.length ? `<h3>Demandas e investigaciones · 90 días</h3><div class="card">${dem.map(z => `<a class="noti" href="${esc(z.url)}" target="_blank" rel="noopener">${tag[z.k] || ''} ${esc(z.ti)}<small>${esc(z.fu)} · ${hace(z.f)}</small></a>`).join('')}</div>` : ''}
+    <div class="enlaces">
+      <a class="btn pri" href="${esc(d.u || buscar)}" target="_blank" rel="noopener">Folleto en la SEC</a>
+      <a class="btn" href="https://news.google.com/search?q=${encodeURIComponent('"' + x.n + '" IPO')}" target="_blank" rel="noopener">Noticias</a>
+    </div>
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Sale de leer su folleto de forma automática: puede escaparse algo. Antes de poner dinero en una salida a bolsa, recuerda lo medido: comprar el primer día suele salir caro.</p>
+    <p class="pie">Información, no consejo de inversión.</p>`;
+  $('#velo').classList.add('on'); $('#hoja').classList.add('on'); $('#hoja').scrollTop = 0;
+  $('#cerrar').onclick = cerrarFicha;
+}
+
 function cerrarFicha() { $('#velo').classList.remove('on'); $('#hoja').classList.remove('on'); }
 
 // ── PRECIOS EN VIVO ──────────────────────────────────────────────────────────
@@ -1298,6 +1383,8 @@ document.addEventListener('click', ev => {
   }
   const fi = ev.target.closest('[data-fipo]');
   if (fi) { ev.preventDefault(); S.filtroIpo = fi.dataset.fipo; return pintarIpos(); }
+  const ip = ev.target.closest('[data-ipo]');
+  if (ip && !ev.target.closest('a') && !ev.target.closest('.hoja')) return abrirSalida(ip.dataset.ipo);
   const f = ev.target.closest('[data-t]');
   if (f && !ev.target.closest('.hoja')) return abrirFicha(f.dataset.t);
 });
