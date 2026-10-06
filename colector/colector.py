@@ -812,8 +812,8 @@ RE_LEGAL = re.compile(r"\b(lawsuits?|class action|sued|suing|investigat\w*|probe
                       r"(?:accused of|for|alleged|alleging) fraud|fraudulent|"
                       r"antitrust|DOJ|FTC|bankrupt\w*|chapter 11|going concern|restat\w*|short[- ]sell\w*|"
                       r"whistleblower|settle(s|d|ment)|verdict|jury)\b", re.I)
-RE_FISCAL = re.compile(r"\b(IRS|tax (disputes?|court|evasion|probes?|fraud|bills?|claims?|case|assessments?)|back taxes|"
-                       r"transfer pricing)\b", re.I)
+RE_FISCAL = re.compile(r"\b(tax (?:disputes?|court|evasion|probes?|fraud|claims?|case|assessments?|fight|battle|ruling|liabilit\w*|penalt\w*|audit\w*|scrutiny|investigation)|back taxes|unpaid taxes|transfer pricing|tax avoidance|"
+                       r"IRS (?:disputes?|audit\w*|probes?|fight\w*|battle\w*|case|claims?|penalt\w*|notice|scrutiny|investigat\w*|lawsuit|sues|sued|challenge|deficiency|overreads?)|(?:run-in|sues|sued|fight\w*|battle\w*|dispute\w*|probed? by|scrutiny|audit\w*|vs\.?|against|win (?:over|against)|ruling|appeal\w*|penalt\w*|overreads?) (?:with |by |from |the |over )*IRS)\b", re.I)
 # Bufetes que buscan accionistas tras una caída: aparecen en masa y no son una demanda en sí
 RE_BUFETE = re.compile(r"(law firm|\bLLP\b|\bLLC\b|encourages|reminds|deadline|lead plaintiff|on behalf of (investors|shareholders)|"
                        r"investors? (alert|notice|reminder|who)|shareholders? (alert|notice|reminder|who)|Pomerantz|Rosen|"
@@ -821,13 +821,16 @@ RE_BUFETE = re.compile(r"(law firm|\bLLP\b|\bLLC\b|encourages|reminds|deadline|l
                        r"Johnson Fistel|Hagens Berman|Bernstein Liebhard|Portnoy|Rigrodsky|Holzer|Block & Leviton|Bleichmar|"
                        r"Labaton|Kahn Swick|ClaimsFiler|Frank R\. Cruz|Howard G\. Smith|Berger Montague|Saxena White|"
                        r"Halper Sadeh|Monteverde|Ademi|Wohl & Fruchter|SBS Law|SueWallSt|opportunity to (lead|join)|"
-                       r"lost money|seeking recovery|investigation alert|shareholder investigation)", re.I)
+                       r"lost money|seeking recovery|investigation alert|shareholder investigation|is investigating|initiates an investigation|P\.C\.|Law (?:Group|Offices?)|attorneys)", re.I)
 # Sucesos en una tienda o un local (robos, tiroteos, detenidos): salen con «investigation» o
 # «charged» y no son un problema de la empresa (Home Depot, 2026-10-06)
+# Notas de analistas («Evercore ISI maintains Apple rating amid lawsuit»), trámites de fusiones
+# («antitrust waiting period expires») y resúmenes de mercado con muchas empresas («Top 20 by...»)
+RE_RUIDO = re.compile(r"\b(maintains|reiterates|upgrades?|downgrades?|price target|stock rating|waiting period|antitrust (?:approval|clearance)|clears? antitrust)\b|top \d+ by|digest|headlines at|;.*;", re.I)
 RE_SUCESO = re.compile(r"\b(theft|thefts|larceny|stolen|steal\w*|vandal\w*|assault\w*|shoplift\w*|shooting|shot|stabb\w*|robber\w*|arrest\w*|police|deputies|"
                        r"sheriff|suspects?|burglar\w*|murder\w*|homicide|carjack\w*|parking lot)\b", re.I)
 # La que demanda es ella («Crocs sues Five Below», «Altria Just Sued the FDA», «Crocs Accuses...»)
-DEMANDA_ELLA = r"\W+(?:\S+\W+){0,3}?(?i:sues|suing|files? (?:a )?(?:law)?suit|sued (?:the|a|an|its)\b|accuses)"
+DEMANDA_ELLA = r"\W+(?:\S+\W+){0,3}?(?i:sues|suing|files? (?:a )?(?:law)?suit|sued (?:the|a|an|its)\b|accuses|seek\w* (?:an? )?(?:investigation|probe)|petition\w*|files? (?:a )?complaint)"
 COMUNES = {"gap", "dow", "hub", "ball", "block", "target", "visa", "match", "snap", "square", "apple", "general", "united",
            "american", "first", "national", "international", "global", "southern", "eastern", "western", "northern",
            "regions", "state", "universal", "progressive", "principal", "public", "federal", "digital", "energy", "realty",
@@ -889,7 +892,7 @@ def titulares_legales(e):
         if not (pat.search(ti) or pat_tk.search(ti)):
             continue
         fis, leg = RE_FISCAL.search(ti), RE_LEGAL.search(ti)
-        if not (fis or leg) or RE_SUCESO.search(ti):
+        if not (fis or leg) or RE_SUCESO.search(ti) or RE_RUIDO.search(ti):
             continue
         if re.search(alias.pattern + DEMANDA_ELLA, ti, alias.flags):
             continue                                         # la que demanda es ella
