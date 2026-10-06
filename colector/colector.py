@@ -843,7 +843,7 @@ COMUNES = {"gap", "dow", "hub", "ball", "block", "target", "visa", "match", "sna
            "sterling", "vista", "carrier", "progress", "advance", "masco", "best", "south", "north", "new", "old",
            "home", "texas", "california", "florida", "boston", "dollar", "family", "simon", "marathon", "las",
            "jackson", "johnson", "williams", "brown", "smith", "lear", "harris", "kaiser", "hartford", "carter",
-           "tapestry"}
+           "tapestry", "nasdaq"}
 
 
 def nombre_busqueda(n):
