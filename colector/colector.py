@@ -807,7 +807,10 @@ def noticias(q, n=5, es=False, dias=30):
 # basura (huecos de precio, el Dow Jones...) -> nombre completo o ticker; y «Crocs sues Five
 # Below» o «Altria sues FDA» no son malas noticias (la empresa es la que demanda) -> fuera.
 Q_LEGAL = '(lawsuit OR "class action" OR sued OR investigation OR probe OR subpoena OR fraud OR antitrust OR IRS OR "tax dispute")'
-RE_LEGAL = re.compile(r"\b(lawsuits?|class action|sued|suing|investigat\w*|probes?|probed|subpoena\w*|indict\w*|"
+RE_LEGAL = re.compile(r"\b(lawsuits?|class action|sued|suing|probes?|probed|subpoena\w*|indict\w*|"
+                      r"under investigation|investigations? (?:into|of|over|on|launched|opened|underway|by)|"
+                      r"(?:faces?|facing|opens?|opened|launch\w*|announces?|seeks?) (?:an? |new |federal |criminal |state )?(?:investigation|probe)|investigat(?:es|ing|ed) (?:[A-Z]\w*|the|its|claims|allegations|whether)|"
+                      r"(?:be|being|was|were|is|are) (?:being )?investigated|"
                       r"securities fraud|fraud (?:charges?|lawsuits?|suits?|case|probe|investigation|allegations?|claims?)|"
                       r"(?:accused of|for|alleged|alleging) fraud|fraudulent|"
                       r"antitrust|DOJ|FTC|bankrupt\w*|chapter 11|going concern|restat\w*|short[- ]sell\w*|"
@@ -821,7 +824,7 @@ RE_BUFETE = re.compile(r"(law firm|\bLLP\b|\bLLC\b|encourages|reminds|deadline|l
                        r"Johnson Fistel|Hagens Berman|Bernstein Liebhard|Portnoy|Rigrodsky|Holzer|Block & Leviton|Bleichmar|"
                        r"Labaton|Kahn Swick|ClaimsFiler|Frank R\. Cruz|Howard G\. Smith|Berger Montague|Saxena White|"
                        r"Halper Sadeh|Monteverde|Ademi|Wohl & Fruchter|SBS Law|SueWallSt|opportunity to (lead|join)|"
-                       r"lost money|seeking recovery|investigation alert|shareholder investigation|free (?:case )?evaluation|free consultation|is investigating|initiates an investigation|P\.C\.|Law (?:Group|Offices?)|attorneys)", re.I)
+                       r"lost money|seeking recovery|investigation alert|shareholder investigation|Kaplan Fox|Lowey Dannenberg|Kuehn Law|Brodsky|Rowley Law|Class Action Firm|Wolf Haldenstein|Gainey McKenna|Scott\+Scott|Schubert Jonckheer|Grabar|Moore Law|announces an investigation|\$HAREHOLDER|free (?:case )?evaluation|free consultation|is investigating|initiates an investigation|P\.C\.|Law (?:Group|Offices?)|attorneys)", re.I)
 # Sucesos en una tienda o un local (robos, tiroteos, detenidos): salen con «investigation» o
 # «charged» y no son un problema de la empresa (Home Depot, 2026-10-06)
 # Notas de analistas («Evercore ISI maintains Apple rating amid lawsuit»), trámites de fusiones
@@ -830,7 +833,7 @@ RE_RUIDO = re.compile(r"\b(maintains|reiterates|upgrades?|downgrades?|price targ
 RE_SUCESO = re.compile(r"\b(theft|thefts|larceny|stolen|steal\w*|vandal\w*|assault\w*|shoplift\w*|shooting|shot|stabb\w*|robber\w*|arrest\w*|police|deputies|"
                        r"sheriff|suspects?|burglar\w*|murder\w*|homicide|carjack\w*|parking lot)\b", re.I)
 # La que demanda es ella («Crocs sues Five Below», «Altria Just Sued the FDA», «Crocs Accuses...»)
-DEMANDA_ELLA = r"\W+(?:\S+\W+){0,3}?(?i:sues|suing|files? (?:a )?(?:law)?suit|sued (?:the|a|an|its)\b|accuses|seek\w* (?:an? )?(?:investigation|probe)|petition\w*|files? (?:a )?complaint)"
+DEMANDA_ELLA = r"\W+(?:\S+\W+){0,3}?(?i:sues|suing|files? (?:a )?(?:law)?suit|sued (?:the|a|an|its)\b|accuses|hits (?:\S+ ){1,3}with|seek\w* (?:an? )?(?:investigation|probe)|petition\w*|files? (?:a )?complaint)"
 COMUNES = {"gap", "dow", "hub", "ball", "block", "target", "visa", "match", "snap", "square", "apple", "general", "united",
            "american", "first", "national", "international", "global", "southern", "eastern", "western", "northern",
            "regions", "state", "universal", "progressive", "principal", "public", "federal", "digital", "energy", "realty",
@@ -839,7 +842,8 @@ COMUNES = {"gap", "dow", "hub", "ball", "block", "target", "visa", "match", "sna
            "arch", "crown", "eagle", "fidelity", "genesis", "heritage", "horizon", "insight", "legacy", "matrix", "sun",
            "sterling", "vista", "carrier", "progress", "advance", "masco", "best", "south", "north", "new", "old",
            "home", "texas", "california", "florida", "boston", "dollar", "family", "simon", "marathon", "las",
-           "jackson", "johnson", "williams", "brown", "smith", "lear", "harris", "kaiser", "hartford", "carter"}
+           "jackson", "johnson", "williams", "brown", "smith", "lear", "harris", "kaiser", "hartford", "carter",
+           "tapestry"}
 
 
 def nombre_busqueda(n):
@@ -895,7 +899,8 @@ def titulares_legales(e):
         if not (fis or leg) or RE_SUCESO.search(ti) or RE_RUIDO.search(ti):
             continue
         if (re.search(alias.pattern + DEMANDA_ELLA, ti, alias.flags)
-                or re.search(r"(?i:sued by|suit (?:from|by)|lawsuit (?:from|by))\W+(?:\S+\W+){0,2}?" + alias.pattern, ti, alias.flags)):
+                or re.search(r"(?i:sued by|suit (?:from|by)|lawsuit (?:from|by))\W+(?:\S+\W+){0,2}?" + alias.pattern, ti, alias.flags)
+                or re.search(r"(?i:\b(?:to|on|tells|told|via|per))\s+" + alias.pattern + r"\s*:", ti, alias.flags)):
             continue                                         # la que demanda es ella
         k = re.sub(r"\W+", "", ti.lower())[:60]
         if k in vistos:
