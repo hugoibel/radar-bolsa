@@ -807,9 +807,9 @@ function porQue(e) {
 
   // Alarmas de la SEC (2 años)
   if (s.rehace) sec('rehace', 'Ha tenido que rehacer sus cuentas', `El ${fechaCorta(ult('rehace')[0])} avisó a la SEC de que sus cifras anteriores no eran fiables${veces(s.rehace.length)}. Los números que ves pueden no ser buenos.`, graves);
-  if (s.quiebra) sec('quiebra', 'Quiebra o administración judicial', `Lo comunicó a la SEC el ${fechaCorta(ult('quiebra')[0])}. En una quiebra el accionista es el último en cobrar y suele perderlo todo.`, graves);
+  if (s.quiebra) sec('quiebra', 'Quiebra', `El ${fechaCorta(ult('quiebra')[0])} comunicó a la SEC que la empresa o una de sus filiales se acoge a la ley de quiebras. En una quiebra el accionista es el último en cobrar y suele perderlo todo.`, graves);
   if (s.tarde) sec('tarde', 'Presentó tarde sus cuentas', `El ${fechaCorta(ult('tarde')[0])} avisó a la SEC de que no llegaba a tiempo con su informe${veces(s.tarde.length)}. Suele esconder problemas contables o de dinero.`, graves);
-  if (s.cotiza) sec('cotiza', 'Problemas para seguir en bolsa', `El ${fechaCorta(ult('cotiza')[0])} comunicó que incumple las normas de su bolsa (por ejemplo, precio por debajo de $1). Si no lo arregla, la pueden sacar.`, graves);
+  if (s.cotiza) sec('cotiza', 'Problemas para seguir en bolsa', `El ${fechaCorta(ult('cotiza')[0])} comunicó que incumple las normas de su bolsa (por ejemplo, precio por debajo de $1 o cuentas sin presentar a tiempo). Si no lo arregla, la pueden sacar.`, graves);
   if (s.auditor) sec('auditor', 'Cambio de auditor con mala señal', `El ${fechaCorta(ult('auditor')[0])}: el informe habla de fallos graves en sus controles contables o de que el auditor se va.`, no);
   if (s.deterioro) sec('deterioro', 'Algo vale menos de lo que pagó', `El ${fechaCorta(ult('deterioro')[0])} apuntó una pérdida importante: algo que compró o construyó vale menos de lo que creía.`, no);
 
@@ -842,7 +842,7 @@ function porQue(e) {
     else if (e.dil <= -0.02) si.push(['Recompra sus acciones', `Hay un ${pct(-e.dil, 0, false)} menos de acciones que hace un año: cada acción tuya es un trozo mayor.`]);
   }
   // Impuestos: lo que dedujo y Hacienda podría no aceptarle
-  if (e.utb && e.mc && e.utb / e.mc >= 0.02) no.push(['Posibles problemas con Hacienda', `Declara ${usd(e.utb)} en impuestos inciertos (deducciones que el fisco podría rechazarle y cobrarle): el ${pct(e.utb / e.mc, 1, false)} de lo que vale en bolsa.`]);
+  if (e.utb && e.mc && e.utb / e.mc >= 0.02 && e.utb < e.mc) no.push(['Posibles problemas con Hacienda', `Declara ${usd(e.utb)} en impuestos inciertos (deducciones que el fisco podría rechazarle y cobrarle): el ${pct(e.utb / e.mc, 1, false)} de lo que vale en bolsa.`]);
 
   // Precio
   if (e.pe > 0 && ms.pe) {

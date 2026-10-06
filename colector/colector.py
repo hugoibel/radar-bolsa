@@ -608,15 +608,23 @@ FORMAS_TARDE = ("NT 10-K", "NT 10-Q", "NT 10-K/A", "NT 10-Q/A")   # avisa de que
 # Lo que convierte un 3.01 o un 4.01 en mala señal. Sin esto, un simple cambio de bolsa
 # (NYSE -> Nasdaq) o de auditor saldría «en contra». No se busca «disagreement»: la frase
 # estándar es «there were no disagreements».
-MALO_8K = {"3.01": ("not in compliance", "noncompliance", "non-compliance", "deficiency", "minimum bid",
-                    "regain compliance", "delisting determination", "below the minimum"),
-           "4.01": ("resign", "declined to stand", "material weakness")}
+# 3.01: solo lo serio (precio por debajo de $1, cuentas sin presentar a tiempo, patrimonio o
+# valor mínimos, decisión de exclusión). Leídos los informes del 2026-10-06, la mitad de los
+# «incumplimientos» eran que faltaba un consejero independiente en el comité de auditoría
+# (ArcBest, Heartland, Construction Partners, STAAR): rutina con plazo para arreglarlo.
+# 1.03: el apartado a veces viene vacío o mal etiquetado (Granite, sin quiebra): se exige que
+# el texto hable de quiebra; si es de una filial (Hughes, de EchoStar) cuenta igual.
+MALO_8K = {"3.01": ("minimum bid", "bid price", "below the minimum", "delisting determination", "timely",
+                    "delinquen", "equity requirement", "market value of"),
+           "4.01": ("resign", "declined to stand", "material weakness"),
+           "1.03": ("bankrupt", "chapter 11", "chapter 7", "receiver", "insolven")}
+VERSION_8K = 2          # sube si cambian las palabras: invalida la caché de lecturas
 
 
 def mala_8k(cik, a, item, cab):
     """¿El 8-K cuenta un problema? Lee el texto del apartado (cacheado para siempre)."""
     os.makedirs(f"{CACHE}/8k", exist_ok=True)
-    ruta = f"{CACHE}/8k/{a[1]}_{item}.json"
+    ruta = f"{CACHE}/8k/{a[1]}_{item}_v{VERSION_8K}.json"
     d = leer(ruta)
     if d is not None:
         return d["mal"]
@@ -700,7 +708,9 @@ def datos_sec(empresas, dias=90):
                 e["dil"] = d[yq] / prev - 1
                 break
         u = utb.get(c) or {}
-        if u:
+        # más de la mitad de lo que vende en un año es un error del dato (Monarch Casino
+        # presentó $633 M con $562 M de ventas y $0 el año anterior)
+        if u and not (e.get("rev") and u[max(u)] > 0.5 * e["rev"]):
             e["utb"] = u[max(u)]
     log(f"  frames: acciones de {len(acc)} empresas, impuestos inciertos de {len(utb)}")
 
@@ -721,7 +731,7 @@ def datos_sec(empresas, dias=90):
         n += 1
         rec = j.get("filings", {}).get("recent", {})
         al = alertas_sub(rec, desde_al)
-        for k, item in (("cotiza", "3.01"), ("auditor", "4.01")):
+        for k, item in (("cotiza", "3.01"), ("auditor", "4.01"), ("quiebra", "1.03")):
             if k in al:
                 al[k] = [a for a in al[k] if mala_8k(c, a, item, cab)]
                 if not al[k]:

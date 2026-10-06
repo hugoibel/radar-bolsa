@@ -2,7 +2,7 @@
    La app (HTML, CSS, JS, iconos) se sirve desde caché para que abra al instante
    y sin conexión. Los datos van primero a la red (siempre lo más fresco) y solo
    si no hay conexión se usa la última copia guardada. */
-const VERSION = 'radar-bolsa-v6';
+const VERSION = 'radar-bolsa-v7';
 const APP = [
   './', './index.html', './css/app.css', './js/app.js', './manifest.webmanifest',
   './img/icon-180.png', './img/icon-192.png', './img/icon-512.png',
