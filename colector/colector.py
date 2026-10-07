@@ -776,7 +776,7 @@ def recorta(x, n):
 
 def futuro_8k(cik, fecha, acc, prim, cab):
     os.makedirs(f"{CACHE}/8k_res", exist_ok=True)
-    ruta = f"{CACHE}/8k_res/{acc}_v5.json"
+    ruta = f"{CACHE}/8k_res/{acc}_v6.json"
     d = leer(ruta)
     if d is not None:
         return d or None
@@ -814,11 +814,13 @@ def futuro_8k(cik, fecha, acc, prim, cab):
                 and not RELLENO_RE.search(x) and 40 < len(x) < 420][:6]
     def palabras(x):
         return set(re.findall(r"[a-z0-9$.]+", x.lower()))
+    # entre dos casi iguales se queda la que trae más cifras (Medtronic: «raised its FY27 ... guidance»
+    # frente a «raised ... guidance to 7.25% to 7.75%, an increase from 6.75%...»)
     unicas = []
-    for x in prev:
+    for x in sorted(prev, key=lambda z: -len(re.findall(r"\d", z))):
         if all(len(palabras(x) & palabras(y)) / max(1, min(len(palabras(x)), len(palabras(y)))) < 0.6 for y in unicas):
             unicas.append(x)
-    prev = unicas
+    prev = [x for x in prev if x in unicas]
     prev.sort(key=lambda x: 0 if re.search(r"\b(expects?|expected|will|now expects?|outlook for|guidance for|to range|to be)\b",
                                          x, re.I) else 1)
     rumbo = None
