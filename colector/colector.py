@@ -222,6 +222,98 @@ def lista_sp(url, indice):
     return out
 
 
+# El resto de la bolsa de EE. UU. (2026-10-10, pedido del usuario: «que estén todas las acciones»).
+# Las listas S&P (1.500) dejan fuera las extranjeras que cotizan en EE. UU. (TSMC, ASML, Novo
+# Nordisk...) y empresas de EE. UU. que no cumplen las reglas del S&P (Cloudflare y Snowflake,
+# por no ganar dinero). El buscador de Nasdaq las da todas en 3 consultas (Nasdaq, NYSE y NYSE
+# American). Se quedan las de $300 M o más en bolsa: por debajo hay ~2.400 microempresas, casi
+# todas sin un negocio que medir, que doblarían la pasada para casi nada (el 99 % del valor de la
+# bolsa está por encima). El buscador también trae preferentes, bonos y warrants de cada empresa
+# con el valor en bolsa de la empresa madre: se quitan por el nombre.
+MC_MIN_RESTO = 300e6
+NO_ACCION = re.compile(r"\b(Warrants?|Rights?|Preferred|Notes?\s+due|Senior\s+(?:Unsecured\s+)?Notes|Subordinated|"
+                       r"Debentures?|Tangible\s+Equity|Capital\s+Trust|ZONES|Fixed[- ]to[- ]Floating|Fixed[- ]Rate|"
+                       r"Cumulative|Perpetual|Convertible|Interest\s+in\s+a\s+Share|Bonds?|STRATS|Trust\s+for|"
+                       r"Trust\s+Certificates|ETF|ETN)\b|\b1/\d|\d\s?%", re.I)
+# Fondos cerrados: cotizan como una acción, pero son una cesta (Gabelli Equity Trust, PIMCO Dynamic
+# Income Fund...). Yahoo los da como «Asset Management» con unos ingresos diminutos para lo que
+# valen (son los intereses y dividendos de la cesta). Las BDC (Ares Capital, Blackstone Secured
+# Lending Fund) sí son empresas: prestan dinero e ingresan un 15-25 % de lo que valen.
+FONDO = re.compile(r"\b(Fund|Trust|Investors|Income|Opportunit\w*|Allocation|Dividend|Municipal|Strateg\w*|"
+                   r"Equity|Securities|Tri[- ]Continental|Small[- ]Cap|Term)\b", re.I)
+
+
+def es_fondo(e):
+    if (e.get("yind") or "") != "Asset Management" or not FONDO.search(e.get("n") or ""):
+        return False
+    return not e.get("rev") or not e.get("mc") or e["rev"] < 0.10 * e["mc"]
+UNIDAD = re.compile(r"(?<!Common )(?<!Class A )(?<!Class B )\bUnits?\b(?!\s+represent)", re.I)
+COLA_NOMBRE = re.compile(r"\s+(?:Class\s+[A-Z]\b|Series\s+[A-Z]\b|Common\s+(?:Stock|Shares)|Ordinary\s+Shares|"
+                         r"American\s+Deposit[ao]ry|Sponsored\s+ADR|ADS\b|ADR\b|Registered\s+(?:Ordinary\s+)?Shares|"
+                         r"New\s+York\s+Registry|Capital\s+Stock|Subordinate\s+Voting|Common\s+Units|Units\s+represent).*$",
+                         re.I)
+
+
+def clave_nombre(n):
+    """Para no meter dos veces la misma empresa (clases A/B, nombre de Wikipedia vs Nasdaq)."""
+    n = re.sub(r"\(.*?\)", " ", n.lower())
+    n = re.sub(r"\bclass [a-z]\b|\bthe\b|\b(?:inc|incorporated|corp|corporation|co|company|ltd|limited|plc|n\.?v|"
+               r"s\.?a|ag|se|holdings?|group|common stock|common shares|ordinary shares|capital stock|"
+               r"american deposit[ao]ry shares?|sponsored adr|ads|adr)\b", " ", n)
+    return re.sub(r"[^a-z0-9]+", " ", n).strip()
+
+
+def resto_eeuu(ya):
+    """Acciones ordinarias de Nasdaq, NYSE y NYSE American de $300 M o más que no estén en `ya`
+    (lista de lo que ya hay en el universo). Si el buscador falla, la última lista buena (≤ 14 días)."""
+    ruta = f"{CACHE}/resto_eeuu.json"
+    filas_ok = []
+    for bolsa, nombre in (("nasdaq", "Nasdaq"), ("nyse", "NYSE"), ("amex", "NYSE American")):
+        j = pedir("https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=25&offset=0"
+                  f"&download=true&exchange={bolsa}", timeout=60)
+        rows = (((j or {}).get("data") or {}).get("rows")) or []
+        if len(rows) < 100:
+            filas_ok = None
+            break
+        for x in rows:
+            x["bolsa"] = nombre
+        filas_ok += rows
+        time.sleep(0.5)
+    if filas_ok:
+        guardar(ruta, {"f": HOY.isoformat(), "rows": filas_ok})
+    else:
+        c = leer(ruta, {}) or {}
+        if not c.get("rows") or (HOY - dt.date.fromisoformat(c["f"])).days > 14:
+            log("  buscador de Nasdaq sin respuesta y sin copia reciente: solo S&P y salidas")
+            return []
+        log(f"  buscador de Nasdaq sin respuesta: se usa la lista del {c['f']}")
+        filas_ok = c["rows"]
+    tick_ya = {e["t"] for e in ya}
+    nom_ya = {clave_nombre(e["n"]) for e in ya if e.get("n")}
+    mejor = {}
+    for x in filas_ok:
+        s0, n = (x.get("symbol") or "").strip(), (x.get("name") or "").strip()
+        mc, px, vol = num(x.get("marketCap")), num(x.get("lastsale")), num(x.get("volume"))
+        if not s0 or "^" in s0 or not mc or mc < MC_MIN_RESTO:
+            continue
+        if NO_ACCION.search(n) or UNIDAD.search(n) or es_spac(n, s0):
+            continue
+        t = s0.replace("/", "-").replace(".", "-")
+        k = clave_nombre(n)
+        if t in tick_ya or k in nom_ya:
+            continue
+        cand = {"t": t, "n": COLA_NOMBRE.sub("", n).strip(" ,.-") or n,
+                "idx": "OTR" if (x.get("country") or "") == "United States" else "EXT",
+                "pais": x.get("country") or "", "bolsa": x["bolsa"], "_dv": (px or 0) * (vol or 0), "_mc": mc}
+        if k not in mejor or cand["_dv"] > mejor[k]["_dv"]:        # de dos clases, la que más se negocia
+            mejor[k] = cand
+    out = sorted(mejor.values(), key=lambda c: -c["_mc"])
+    for c in out:
+        c["mc0"] = c.pop("_mc")                 # por si Yahoo no da el valor en bolsa (Bladex)
+        del c["_dv"]
+    return out
+
+
 def mes_nasdaq(fecha):
     """Calendario de salidas a bolsa de Nasdaq de un mes. Los meses cerrados se cachean."""
     clave = fecha.strftime("%Y-%m")
@@ -304,7 +396,8 @@ def fundamentales(t):
     if not CRUMB["v"]:
         crumb()
     url = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{t}"
-           f"?modules=financialData,price,summaryProfile,earnings,summaryDetail,defaultKeyStatistics,assetProfile,earningsTrend"
+           f"?modules=financialData,price,summaryProfile,earnings,summaryDetail,defaultKeyStatistics,assetProfile,earningsTrend,"
+           f"calendarEvents"
            f"&crumb={CRUMB['v']}")
     j = pedir(url, intentos=2)
     if j is None:                 # crumb caducado: se renueva una vez
@@ -338,7 +431,8 @@ def fundamentales(t):
          # lo que opinan los analistas (la app avisa de que sus objetivos pecan de optimistas)
          "ebitda": v(fd, "ebitda"), "de": v(fd, "debtToEquity"), "cur": v(fd, "currentRatio"),
          "roe": v(fd, "returnOnEquity"), "rec": v(fd, "recommendationMean"),
-         "nan": v(fd, "numberOfAnalystOpinions"), "obj": v(fd, "targetMeanPrice")}
+         "nan": v(fd, "numberOfAnalystOpinions"), "obj": v(fd, "targetMeanPrice"),
+         "mon": fd.get("financialCurrency") if fd.get("financialCurrency") not in (None, "USD") else None}
     # ── quién la dirige y qué se espera (2026-10-06, pedido del usuario) ──
     # Gobierno corporativo de ISS (1 = poco riesgo, 10 = mucho): global, consejo, sueldos,
     # derechos del accionista y auditoría. Hub Group, que rehízo sus cuentas, tiene auditoría 10.
@@ -378,6 +472,16 @@ def fundamentales(t):
         pv["na"] = na
     if pv:
         f["prev"] = pv
+    # Próximos resultados (2026-10-10): la nota solo se mueve de verdad cuando la empresa presenta
+    # resultados, así que la app dice cuándo toca. Yahoo marca si la fecha es estimada.
+    ce = ((r.get("calendarEvents") or {}).get("earnings") or {})
+    hoy_ts = time.time() - 86400
+    fechas = sorted(x["raw"] for x in (ce.get("earningsDate") or []) if isinstance(x, dict)
+                    and isinstance(x.get("raw"), (int, float)) and x["raw"] >= hoy_ts)
+    if fechas and fechas[0] - hoy_ts < 200 * 86400:
+        f["fres"] = time.strftime("%Y-%m-%d", time.gmtime(fechas[0]))
+        if ce.get("isEarningsDateEstimate"):
+            f["fres_e"] = True
     if f["fcf"] is not None and f["rev"]:
         f["mfcf"] = f["fcf"] / f["rev"]          # caja libre por cada dólar vendido
     # Crecimiento ANUAL (último ejercicio vs el anterior). El de un solo trimestre
@@ -1296,6 +1400,34 @@ def salidas(salida, prox, reg):
     log(f"  salidas: {len(out)} con folleto revisado, {sum(1 for v in out.values() if v.get('gc'))} con duda del auditor")
 
 
+def a_dolares(empresas):
+    """Yahoo da las cuentas de las extranjeras en SU moneda (TSMC, en dólares taiwaneses: sus
+    ventas salían como $3,8 billones). Se pasan a dólares con el cambio del día; márgenes,
+    crecimientos y PER no cambian. Sin cambio fiable, esas cifras se quitan."""
+    tasas, n = {}, 0
+    for e in empresas:
+        m = e.pop("mon", None)
+        if not m:
+            continue
+        if m not in tasas:
+            p = precios(f"{m}USD=X", "5d")
+            tasas[m] = p["px"] if p and p.get("px") else None
+            time.sleep(0.12)
+        k = tasas[m]
+        for c in ("rev", "caja", "deuda", "fcf", "ebitda"):
+            if e.get(c) is not None:
+                if k:
+                    e[c] *= k
+                else:
+                    del e[c]
+        if e.get("ceo"):
+            e["ceo"].pop("p", None)               # el sueldo, en moneda dudosa: fuera
+        e["mon"] = m
+        n += 1
+    log(f"  cuentas en otra moneda pasadas a dólares: {n} ({', '.join(f'{m} {k:.4g}' for m, k in tasas.items() if k)})"
+        + (f"; sin cambio: {[m for m, k in tasas.items() if not k]}" if any(not k for k in tasas.values()) else ""))
+
+
 # ── temas y puntuación ───────────────────────────────────────────────────────
 def tema_de(e):
     sub = e.get("sub") or ""
@@ -1443,6 +1575,10 @@ def modo_completo(salida):
     recientes = [x for x in ipos_recientes() if x["t"] not in vistos]
     log(f"  salidas a bolsa recientes (18 meses, sin SPACs): {len(recientes)}")
     uni += recientes
+    resto = resto_eeuu(uni)
+    log(f"  resto de la bolsa de EE. UU. (≥ $300 M): {len(resto)} "
+        f"({sum(1 for x in resto if x['idx'] == 'EXT')} extranjeras)")
+    uni += resto
     n_max = int(os.environ.get("RB_MAX") or 0)
     if n_max:                                   # solo para pruebas: una muestra de todo tipo de valores
         uni = uni[:: max(1, len(uni) // n_max)]
@@ -1460,9 +1596,14 @@ def modo_completo(salida):
         if not p:
             continue
         e.update(fundamentales(e["t"]))
+        if not e.get("mc") and e.get("mc0"):
+            e["mc"] = e["mc0"]
         time.sleep(0.12)
-        if (e.get("yind") or "") == "Shell Companies":
-            continue                                  # SPAC disfrazado
+        if ((e.get("yind") or "") == "Shell Companies" and e["idx"] not in ("500", "400", "600")
+                and (e.get("rev") or 0) < 50e6):
+            continue                                  # SPAC disfrazado (Yahoo llamaba «Shell» a Vylor, del S&P 500)
+        if e["idx"] in ("OTR", "EXT") and es_fondo(e):
+            continue                                  # fondo cerrado, no una empresa
         e["sector"] = SECTOR_ES.get(e.get("sector") or e.get("ysector"), e.get("sector") or e.get("ysector") or "—")
         e.update({k: p[k] for k in ("px", "r1d", "r1m", "r3m", "r6m", "r1a", "hi", "lo", "dd", "dv")})
         e["fin"] = e["sector"] in ("Finanzas", "Inmobiliario")   # bancos/REIT: margen y ventas no comparables
@@ -1486,6 +1627,7 @@ def modo_completo(salida):
         hist[e["t"]] = {"d0": p["d0"], "d1": p["d1"], "w": p["sem"]}
         empresas.append(e)
     log(f"  con precio: {len(empresas)}  con fundamentales: {sum(1 for e in empresas if e.get('cr') is not None)}")
+    a_dolares(empresas)
 
     log("interés en Wikipedia (empresas y temas)")
     for e in empresas:
@@ -1506,6 +1648,23 @@ def modo_completo(salida):
 
     log("puntuación")
     n_eleg = puntuar(empresas)
+    # Nota de hace una semana (2026-10-10, el usuario veía «las mismas notas»): la nota se basa en
+    # las cuentas trimestrales y solo se mueve de verdad cuando la empresa presenta resultados;
+    # así la app enseña qué ha cambiado y cuándo.
+    ruta_h = f"{CACHE}/notas_hist.json"
+    nh = leer(ruta_h, {}) or {}
+    nh[HOY.isoformat()] = {e["t"]: e["sc"] for e in empresas if e.get("sc") is not None}
+    nh = {f: nh[f] for f in sorted(nh)[-30:]}
+    ref = [f for f in sorted(nh) if f <= (HOY - dt.timedelta(days=7)).isoformat()]
+    if ref:
+        viejo = nh[ref[-1]]
+        for e in empresas:
+            if e.get("sc") is not None and e["t"] in viejo:
+                e["sc7"] = viejo[e["t"]]
+    if not os.environ.get("RB_MAX"):              # una pasada de prueba no ensucia el historial
+        guardar(ruta_h, nh)
+    log(f"  notas de referencia: {ref[-1] if ref else 'ninguna aún'}; "
+        f"cambian en 7 días: {sum(1 for e in empresas if e.get('sc7') is not None and e['sc7'] != e['sc'])}")
     for e in empresas:
         if e["idx"] in ("500", "400", "600") and e.get("dd") is not None and e["dd"] <= -0.30:
             e["cast"] = True
@@ -1531,9 +1690,11 @@ def modo_completo(salida):
 
     # Valoración típica de cada sector, para que la ficha diga si algo es caro o barato
     # frente a sus parecidas (mediana; el PER y el EV/EBITDA solo cuando son positivos).
+    # Solo con las del S&P 1500 (2026-10-10): al entrar el resto de la bolsa, la vara de medir
+    # sigue siendo la misma de antes (y no la mueven ~1.700 pequeñas y extranjeras).
     med_sector = {}
     for sec in {e["sector"] for e in empresas}:
-        g = [e for e in empresas if e["sector"] == sec]
+        g = [e for e in empresas if e["sector"] == sec and e["idx"] in ("500", "400", "600")]
         m = {}
         for k, pos in (("pe", True), ("fpe", True), ("ps", False), ("eveb", True), ("div", False)):
             vals = [e[k] for e in g if isinstance(e.get(k), (int, float)) and math.isfinite(e[k]) and (e[k] > 0 or not pos)]
@@ -1548,7 +1709,7 @@ def modo_completo(salida):
               "wv", "sc", "comp", "cast", "salud", "ipo_fecha", "ipo_px", "ipo_px_aj", "aj", "ncs", "ipo_usd",
               "bolsa", "ses", "r_ipo", "r_dia1", "grande", "lockup", "cik", "ins",
               "ebitda", "de", "cur", "roe", "rec", "nan", "obj", "dil", "utb", "sec",
-              "gob", "ceo", "empl", "dpct", "prev", "id", "cxv", "cxg"]
+              "gob", "ceo", "empl", "dpct", "prev", "id", "cxv", "cxg", "pais", "mon", "fres", "fres_e", "sc7"]
     salida_e = []
     for e in empresas:
         o = {}

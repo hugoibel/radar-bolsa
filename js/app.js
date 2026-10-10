@@ -80,7 +80,24 @@ const LS = {
 };
 let favs = new Set(LS.get('rb_favs', []));
 
-const INDICE = { '500': 'S&P 500 · grande', '400': 'S&P 400 · mediana', '600': 'S&P 600 · pequeña', 'IPO': 'Salida a bolsa reciente' };
+const INDICE = { '500': 'S&P 500 · grande', '400': 'S&P 400 · mediana', '600': 'S&P 600 · pequeña', 'IPO': 'Salida a bolsa reciente',
+  'OTR': 'EE. UU. · fuera del S&P', 'EXT': 'Extranjera · cotiza en EE. UU.' };
+// País de las extranjeras (el buscador de Nasdaq lo da en inglés)
+const PAIS = { 'Taiwan': 'Taiwán', 'Netherlands': 'Países Bajos', 'United Kingdom': 'Reino Unido', 'Switzerland': 'Suiza',
+  'Japan': 'Japón', 'Canada': 'Canadá', 'Germany': 'Alemania', 'France': 'Francia', 'Spain': 'España', 'Denmark': 'Dinamarca',
+  'Brazil': 'Brasil', 'Belgium': 'Bélgica', 'Luxembourg': 'Luxemburgo', 'Ireland': 'Irlanda', 'Norway': 'Noruega',
+  'Sweden': 'Suecia', 'Italy': 'Italia', 'Mexico': 'México', 'Peru': 'Perú', 'South Korea': 'Corea del Sur',
+  'Singapore': 'Singapur', 'Bermuda': 'Bermudas', 'Cayman Islands': 'Islas Caimán', 'Greece': 'Grecia',
+  'Finland': 'Finlandia', 'South Africa': 'Sudáfrica', 'Panama': 'Panamá', 'Kazakhstan': 'Kazajistán',
+  'British Virgin Islands': 'Islas Vírgenes Británicas', 'Jersey': 'Jersey', 'Monaco': 'Mónaco', 'Cyprus': 'Chipre',
+  'Turkey': 'Turquía', 'Indonesia': 'Indonesia', 'Philippines': 'Filipinas', 'New Zealand': 'Nueva Zelanda' };
+const origen = e => esc(INDICE[e.idx] || '') + (e.idx === 'EXT' && e.pais ? ' · ' + esc(PAIS[e.pais] || e.pais) : '');
+// Cuánto ha cambiado la nota en una semana (la nota sale de las cuentas trimestrales)
+const camb7 = e => {
+  if (e.sc == null || e.sc7 == null || e.sc === e.sc7) return '';
+  const d = e.sc - e.sc7;
+  return `<span class="${d > 0 ? 'up' : 'down'}" title="Cambio de la nota en 7 días">${d > 0 ? '▲' : '▼'}${Math.abs(d)}</span> · `;
+};
 
 // ── carga de datos ───────────────────────────────────────────────────────────
 async function cargar(nombre) {
@@ -147,7 +164,7 @@ function filaEmp(e, der) {
   const izq = e.sc != null ? anillo(e.sc) : '';
   return `<div class="fila" data-t="${esc(e.t)}">${izq}
     <div class="info"><div class="nom"><span class="tk">${esc(e.t)}</span>${esc(e.n)}</div>
-    <div class="det">${der != null ? `<span data-vp="${esc(e.t)}">${precio(e.px)}</span> · ` : ''}${esc(e.tema !== 'otros' ? temaCorto(e.tema) : e.sector)} · ${usd(e.mc)}</div></div>
+    <div class="det">${der != null ? `<span data-vp="${esc(e.t)}">${precio(e.px)}</span> · ` : ''}${camb7(e)}${e.idx === 'EXT' ? esc(PAIS[e.pais] || e.pais || 'Extranjera') + ' · ' : ''}${esc(e.tema !== 'otros' ? temaCorto(e.tema) : e.sector)} · ${usd(e.mc)}</div></div>
     <div class="der">${der ?? `<b data-vp="${esc(e.t)}">${precio(e.px)}</b><span class="${cls(e.r1d)}" data-vc="${esc(e.t)}">${pct(e.r1d, 2)} hoy</span>`}</div></div>`;
 }
 
@@ -337,7 +354,7 @@ function pintarPotencial() {
   if (S.filtroTema !== 'todos') L = L.filter(e => e.tema === S.filtroTema);
   L.sort((a, b) => b.sc - a.sc);
   $('#ideas-c').innerHTML = `
-    <p class="sub">${S.res.n_puntuadas} empresas pequeñas y medianas (valor en bolsa ≤ $10.000 M, con ventas y liquidez) puntuadas de 0 a 100: crecimiento de ventas sostenido 35&nbsp;%, margen bruto 15&nbsp;%, margen operativo 15&nbsp;%, solidez 15&nbsp;%, tema importante 10&nbsp;%, interés creciente 10&nbsp;%. La cifra de la derecha es el crecimiento de ventas: el menor entre el anual y el del último trimestre, para que un cobro puntual no engañe.</p>
+    <p class="sub">${S.res.n_puntuadas} empresas pequeñas y medianas (valor en bolsa ≤ $10.000 M, con ventas y liquidez) puntuadas de 0 a 100: crecimiento de ventas sostenido 35&nbsp;%, margen bruto 15&nbsp;%, margen operativo 15&nbsp;%, solidez 15&nbsp;%, tema importante 10&nbsp;%, interés creciente 10&nbsp;%. La cifra de la derecha es el crecimiento de ventas: el menor entre el anual y el del último trimestre, para que un cobro puntual no engañe. La nota se recalcula cada día, pero sale de las cuentas trimestrales: se mueve sobre todo cuando la empresa presenta resultados (casi todas, entre 2 y 7 semanas después de cerrar marzo, junio, septiembre y diciembre). La flecha ▲▼ junto al precio es cuánto ha cambiado su nota en 7 días.</p>
     ${medidoHTML('potencial') || '<div class="aviso"><b>Regla, no bola de cristal:</b> la puntuación ordena por calidad y crecimiento, pero <b>no se ha probado</b> que gane al índice. Úsala como lista para investigar.</div>'}
     <div class="chips">${temas.map(([k, t]) => `<button class="chip ${S.filtroTema === k ? 'on' : ''}" data-ftema="${k}">${esc(t)}</button>`).join('')}</div>
     ${L.length ? L.slice(0, 100).map(e => filaEmp(e, `<b class="${cls(e.cr)}">${pct(e.cr, 0)}</b><span class="muted">ventas</span>`)).join('') : '<div class="vacio">Ninguna empresa de este tema pasa los filtros.</div>'}`;
@@ -375,7 +392,7 @@ function pintarCaidas() {
     ${L.length ? L.slice(0, 120).map(e => `
       <div class="fila" data-t="${esc(e.t)}"><div class="info">
         <div class="nom"><span class="tk">${esc(e.t)}</span>${esc(e.n)}</div>
-        <div class="det"><span data-vp="${esc(e.t)}">${precio(e.px)}</span> · ${esc(INDICE[e.idx])} · ${esc(e.sector)}</div>
+        <div class="det"><span data-vp="${esc(e.t)}">${precio(e.px)}</span> · ${origen(e)} · ${esc(e.sector)}</div>
         <div style="margin-top:5px">${chipDir(e)}${(e.salud || []).map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('')}${e.r1m != null && e.r1m <= -0.10 ? '<span class="tag mal">sigue cayendo</span>' : ''}</div></div>
         <div class="der"><b class="down">${pct(e.dd, 0)}</b><span class="muted">desde máximo</span></div></div>`).join('') : '<div class="vacio">Nada con este filtro.</div>'}`;
 }
@@ -396,7 +413,7 @@ function pintarResultados() {
   if (!q) { $('#resq').innerHTML = ''; return; }
   const L = S.emp.filter(e => e.t.toLowerCase().startsWith(q) || e.n.toLowerCase().includes(q))
     .sort((a, b) => (b.t.toLowerCase() === q) - (a.t.toLowerCase() === q) || (b.mc || 0) - (a.mc || 0)).slice(0, 40);
-  $('#resq').innerHTML = L.length ? L.map(e => filaEmp(e)).join('') : '<div class="vacio">Sin resultados. La app cubre el S&P 500, 400, 600 y las salidas a bolsa de los últimos 18 meses.</div>';
+  $('#resq').innerHTML = L.length ? L.map(e => filaEmp(e)).join('') : '<div class="vacio">Sin resultados. La app cubre todas las acciones de Nasdaq y NYSE que valen $300 M o más (también las extranjeras que cotizan allí) y las salidas a bolsa de los últimos 18 meses. No incluye fondos ni las que solo cotizan en el mercado OTC o fuera de EE. UU.</div>';
 }
 function pintarFavs() {
   const L = [...favs].map(t => S.porT[t]).filter(Boolean);
@@ -432,6 +449,8 @@ function pintarGuia() {
       <dt>Compras de directivos (SEC)</dt><dd>Por ley, los directivos de una empresa tienen que avisar a la SEC (formulario 4) cuando compran o venden sus acciones. En estudios con datos de los años 80 a 2000, las empresas donde varios directivos compraban con su dinero lo hacían algo mejor que el mercado. Medido aquí con 2012-2025 (2 o más directivos comprando en 90 días), ya no se distingue del azar: es una pista para investigar, no una señal de compra. Vender dice poco: lo hacen por impuestos o para diversificar.</dd>
       <dt>Folleto (S-1)</dt><dd>El documento oficial que una empresa entrega a la SEC antes de salir a bolsa: cuenta su negocio, sus cifras y sus riesgos.</dd>
       <dt>¿Por qué sí y por qué no?</dt><dd>En cada ficha, los hechos de la empresa a favor y en contra, explicados. Describen la empresa; no dicen si la acción va a subir. Medido aquí, ninguna de estas señales por sí sola ha ganado al índice de forma fiable.</dd>
+      <dt>¿Qué acciones hay en la app?</dt><dd>Todas las de Nasdaq y NYSE que valen $300 M o más: las del S&P 500, 400 y 600, las de EE. UU. que no están en esos índices (por ejemplo, Cloudflare o Snowflake, que no entran porque aún no ganan dinero) y las extranjeras que cotizan en EE. UU. (TSMC, ASML, Novo Nordisk…). También todas las salidas a bolsa de los últimos 18 meses. Quedan fuera los fondos, las microempresas de menos de $300 M y las que solo cotizan en el mercado OTC.</dd>
+      <dt>¿Por qué la nota casi no cambia?</dt><dd>Porque mide el negocio (cuánto crece, cuánto gana, cuánta caja tiene) y eso solo se sabe cuando la empresa presenta resultados, cada 3 meses. La app la recalcula cada día con lo último publicado y te enseña cuánto ha cambiado en 7 días y cuándo son sus próximos resultados. Una nota que saltara cada día con el precio sería ruido, no información.</dd>
       <dt>Alarmas en la SEC</dt><dd>Avisos que la empresa ha tenido que presentar a la SEC en los últimos 2 años: que rehace sus cuentas porque las anteriores no eran fiables, que presenta tarde su informe, que está en quiebra o que incumple las normas de su bolsa. Son de las peores señales que puede dar una empresa. La app enlaza cada informe para que lo leas.</dd>
       <dt>Cambio de auditor con mala señal</dt><dd>El auditor revisa las cuentas de la empresa. Cambiarlo suele ser rutina; la app solo lo marca cuando el informe habla de «debilidades materiales» (fallos graves en cómo lleva las cuentas) o de que el auditor renuncia.</dd>
       <dt>Impuestos inciertos</dt><dd>Deducciones que la empresa se ha aplicado y que Hacienda (el IRS u otro fisco) podría no aceptarle y cobrarle. Casi todas las grandes tienen algo; la app avisa cuando pasan del 2 % de lo que vale en bolsa, porque ahí suele haber una disputa seria con el fisco.</dd>
@@ -887,6 +906,7 @@ function porQue(e) {
   if (e.corto >= 0.10) no.push(['Muchos apuestan a que baje', `El ${pct(e.corto, 0, false)} de sus acciones está vendido en corto.`]);
   if (e.beta >= 1.6) no.push(['Muy brusca', `Se mueve ${nf(e.beta, 1)} veces más que el mercado, al subir y al bajar.`]);
   else if (e.idx === '500' && e.beta != null && e.beta < 0.8) si.push(['Grande y tranquila', 'Está en el S&P 500 y se mueve menos que el mercado.']);
+  if (e.idx === 'EXT') no.push(['Es extranjera', `Su sede está en ${PAIS[e.pais] || e.pais || 'otro país'}${e.mon ? ` y sus cuentas van en ${e.mon} (la app las pasa a dólares)` : ''}: tu dinero queda expuesto a otra moneda, y si paga dividendo su país suele quedarse una parte. Además, casi todas las extranjeras presentan menos informes a la SEC (no los avisos que vigila la app), así que de ella sabrás menos.`]);
   const ins = compraDir(e);
   if (ins) si.push(['Sus directivos compran', `${ins.n} directivo${ins.n === 1 ? ' ha' : 's han'} comprado ${usd(ins.c)} con su propio dinero en 90 días.`]);
 
@@ -1056,8 +1076,9 @@ function abrirFicha(t) {
     ['Margen neto', `<span class="${cls(e.mn)}">${pct(e.mn, 1)}</span>`, e.mn < 0 ? 'Pierde dinero' : (e.mo != null && e.mn > e.mo + 0.1 ? '⚠️ Mucho mayor que el operativo: hay algo puntual (impuestos, ventas de activos)' : 'Lo que gana al final')],
     ['Caja / Deuda', `${usd(e.caja)} / ${usd(e.deuda)}`, 'Dinero en el banco frente a lo que debe'],
     ['Caída desde máximo', `<span class="${cls(e.dd)}">${pct(e.dd, 0)}</span>`, `Máximo 1 año: ${precio(e.hi)}`],
-    ['Interés en Wikipedia', e.wv ? `<span class="${cls(e.wv.tend)}">${pct(e.wv.tend, 0)}</span>` : '—', e.wv ? `${e.wv.dia.toLocaleString('es-ES')} visitas/día` : 'Sin artículo'],
+    ['Interés en Wikipedia', e.wv ? `<span class="${cls(e.wv.tend)}">${pct(e.wv.tend, 0)}</span>` : '—', e.wv ? `${e.wv.dia.toLocaleString('es-ES')} visitas/día` : (['500', '400', '600'].includes(e.idx) ? 'Sin artículo' : 'Solo se mide en las del S&P')],
   ];
+  if (e.fres) met.push(['Próximos resultados', fechaCorta(e.fres), e.fres_e ? 'Fecha estimada' : 'Fecha anunciada por la empresa']);
   if (run != null) met.push(['Meses de caja', `<span class="${run < 18 ? 'down' : 'up'}">${run}</span>`, run < 18 ? 'Pronto tendrá que pedir dinero' : 'Al ritmo de pérdidas actual']);
   if (e.idx === 'IPO') {
     met.unshift(['Salida a bolsa', fechaCorta(e.ipo_fecha), `a ${precio(e.ipo_px)} · oferta ${usd(e.ipo_usd)}`],
@@ -1084,7 +1105,7 @@ function abrirFicha(t) {
     <div class="titulo"><h2><span class="tk">${esc(e.t)}</span>${esc(e.n)}</h2>
       <button class="estrella" id="fav" aria-label="Favorita">${fav ? '⭐' : '☆'}</button>
       <button class="icobtn" id="cerrar" aria-label="Cerrar">✕</button></div>
-    <div class="muted" style="font-size:13px;margin-top:4px">${esc(INDICE[e.idx])} · ${esc(e.sector)}${e.tema !== 'otros' ? ' · ' + esc(temaTxt(e.tema)) : ''}</div>
+    <div class="muted" style="font-size:13px;margin-top:4px">${origen(e)} · ${esc(e.sector)}${e.tema !== 'otros' ? ' · ' + esc(temaTxt(e.tema)) : ''}</div>
     <div class="precio"><span data-vp="${esc(e.t)}">${precio(e.px)}</span> <span class="${cls(e.r1d)}" style="font-size:15px" data-vc="${esc(e.t)}">${pct(e.r1d, 2)} hoy</span></div>
     <div class="kpis" style="margin-top:2px">
       <div class="kpi"><b class="${cls(e.r1m)}">${pct(e.r1m)}</b><span>1 mes</span></div>
@@ -1098,7 +1119,8 @@ function abrirFicha(t) {
     <div id="ficha-dir">${direccionHTML(e)}</div>
     ${e.sc != null ? `<h3>Puntuación de potencial: ${e.sc}/100</h3><div class="card comp">${Object.entries(e.comp).map(([k, v]) => `
       <div class="l"><span>${NOM[k]}</span><b>${v}</b></div><div class="barra"><i style="width:${v}%"></i></div>`).join('')}
-      <p class="muted" style="font-size:12px;margin:10px 0 0">Cada barra compara la empresa con las otras ${S.res.n_puntuadas} puntuadas (100 = la mejor). Regla sin probar contra el índice.</p></div>` : ''}
+      <p class="muted" style="font-size:12px;margin:10px 0 0">Cada barra compara la empresa con las otras ${S.res.n_puntuadas} puntuadas (100 = la mejor). Regla sin probar contra el índice.</p>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">${e.sc7 != null ? (e.sc7 === e.sc ? 'Hace 7 días tenía la misma nota. ' : `Hace 7 días tenía ${e.sc7}. `) : ''}La nota se recalcula cada día, pero sale de sus cuentas del último trimestre: cambia de verdad cuando presenta resultados${e.fres ? ` (los próximos, el ${fechaCorta(e.fres)}${e.fres_e ? ', fecha estimada' : ''})` : ''}.</p></div>` : ''}
     ${e.cast ? `<h3>Señales de salud tras la caída</h3><div>${(e.salud || []).map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('') || '<span class="tag mal">Ninguna: cuidado, puede ser un negocio en problemas</span>'}</div>` : ''}
     ${e.ins ? `<h3>Directivos · SEC · 90 días</h3><div class="card">
       ${e.ins.c > 0 ? `<div style="font-size:15px"><b class="up">${usd(e.ins.c)}</b> comprados con su propio dinero por <b>${e.ins.n}</b> directivo${e.ins.n === 1 ? '' : 's'}${e.ins.ult ? ` (último: ${fechaCorta(e.ins.ult)})` : ''}.</div>
