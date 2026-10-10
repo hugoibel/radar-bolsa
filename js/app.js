@@ -6,7 +6,7 @@
 const S = { res: null, emp: [], ipos: null, not: null, hist: null, porT: {}, vista: 'inicio',
             filtroTema: 'todos', filtroCaida: 'sanas', filtroIpo: 'proximas', q: '', ideas: 'potencial',
             fondos: null, historia: null, indice: null, vivo: {} };
-const VISTAS = ['inicio', 'dinero', 'ideas', 'ipos', 'buscar', 'guia'];
+const VISTAS = ['inicio', 'dinero', 'ideas', 'hallazgos', 'ipos', 'buscar', 'guia'];
 
 // Precios en vivo (2026-10-04): Cloudflare Worker que hace de puente con Yahoo, porque el
 // navegador no puede leer Yahoo directamente (CORS). Si falla, la app sigue con los datos
@@ -113,10 +113,13 @@ async function iniciar() {
   // El futuro según cada empresa (textos de sus informes, ~1,5 MB): se baja después, sin
   // retrasar la apertura. Si la ficha abierta lo necesitaba, se repinta su sección.
   cargar('futuro').then(f => { S.fut = f; repintarFuturo(); }).catch(() => { S.fut = { emp: {} }; });
+  // Hallazgos: se recogen cada 5 min en el VPS; con la app abierta se refrescan cada 10 min
+  cargarHallazgos();
+  setInterval(cargarHallazgos, 10 * 60 * 1000);
 }
 
 function pintarTodo() {
-  pintarInicio(); pintarDinero(); pintarIdeas(); pintarIpos(); pintarBuscar(); pintarGuia();
+  pintarInicio(); pintarDinero(); pintarIdeas(); pintarHallazgos(); pintarIpos(); pintarBuscar(); pintarGuia();
 }
 
 function ir(v, hist = true) {
@@ -183,6 +186,8 @@ function pintarInicio() {
         <div class="kpi"><b data-vp="SPY">${precio(spy.px)}</b><span>precio SPY</span></div>
       </div>
     </div>
+
+    <div id="hz-inicio">${hallazgosInicioHTML()}</div>
 
     <div class="card empieza" data-ir="dinero" style="margin-top:12px;cursor:pointer">
       <b>💼 ¿Empiezas a invertir?</b> El plan en 5 pasos, una calculadora con 100 años de historia real y tu cartera comparada con el índice. <span style="color:var(--acc)">Mi dinero →</span>
@@ -434,6 +439,10 @@ function pintarGuia() {
       <dt>Lo que esperan los analistas</dt><dd>La media de lo que los analistas creen que crecerán sus ventas y su beneficio este año y el siguiente, y cuánto han cambiado esa previsión en 3 meses. Lo que ya se espera suele estar en el precio: lo que mueve la acción es la sorpresa.</dd>
       <dt>Gobierno corporativo (ISS)</dt><dd>ISS es la empresa que aconseja a los grandes fondos cómo votar en las juntas. Puntúa de 1 (poco riesgo) a 10 (mucho) el consejo, los sueldos de los directivos, los derechos del accionista y la auditoría. Un 10 suele venir de acciones de doble voto (los fundadores mandan con poco dinero) o de un consejo poco independiente; no quiere decir que la empresa vaya mal.</dd>
       <dt>En manos de los de dentro</dt><dd>La parte de la empresa que tienen sus directivos, consejeros y fundadores. Si es grande, ganan o pierden contigo.</dd>
+      <dt>Hallazgos</dt><dd>Las noticias de minería (exploración, descubrimientos, nuevas minas) y tecnología (aprobaciones de la FDA, ensayos clínicos, récords técnicos, contratos) que publican las propias empresas, recogidas cada 5 minutos de TMX Newsfile, PR Newswire y Google News. De lo importante llega un email al momento. Los artículos de opinión de webs de bolsa se marcan como «prensa» y la publicidad pagada de los promotores de acciones, como «publicidad»: nunca dan aviso.</dd>
+      <dt>Perforación: metros, g/t y g·m</dt><dd>«20 m con 5 g/t de oro» quiere decir que en 20 metros de roca hay de media 5 gramos de oro por tonelada. Multiplicando sale la «fuerza» del tramo: 100 g·m. La app llama importante a partir de unos 100 g·m en oro, 5.000 en plata o 150 %·m en cobre. Un tramo bueno no es una mina: hacen falta muchos, seguidos, cerca de la superficie y en un sitio donde se pueda construir.</dd>
+      <dt>VAN y TIR de un estudio</dt><dd>Un estudio económico (PEA, prefactibilidad o factibilidad) calcula cuánto valdría la mina hoy (VAN, valor actual neto) y qué rentabilidad daría la inversión (TIR). Una PEA es muy preliminar; la factibilidad es la que de verdad cuenta para conseguir financiación.</dd>
+      <dt>TSXV, CSE, ASX, OTC</dt><dd>Muchas exploradoras cotizan en Canadá (TSX Venture, CSE) o Australia (ASX). Casi todas tienen además un ticker en el mercado OTC de EE.UU. (acaba en F, por ejemplo BHSIF), que es el que puedes comprar desde un bróker de EE.UU. Ojo: en el OTC se negocia poco y el precio salta mucho.</dd>
       <dt>Demandas e investigaciones</dt><dd>Titulares de Google News de los últimos 90 días que nombran a la empresa y hablan de demandas, investigaciones, multas de competencia o problemas con Hacienda. Se revisan todas las empresas cada día o dos. Se descartan los sucesos en una tienda (un robo en un Walmart) y las demandas que pone la propia empresa. Aparte van los anuncios de bufetes que buscan accionistas tras una caída: no son una demanda en sí. Una demanda no es una condena: las empresas grandes siempre tienen alguna.</dd>
       <dt>Sacar acciones nuevas / recomprar</dt><dd>Si hay más acciones que hace un año, tu trozo de la empresa encoge (se «diluye»): pasa en empresas que necesitan dinero o pagan mucho en acciones a sus empleados. Si hay menos, la empresa ha recomprado las suyas y tu trozo crece.</dd>
       <dt>Caja y deuda</dt><dd>El dinero que tiene en el banco frente a lo que debe. Mucha caja y poca deuda = aguanta mejor una mala racha.</dd>
@@ -1212,6 +1221,113 @@ function abrirSalida(k) {
   $('#cerrar').onclick = cerrarFicha;
 }
 
+// ── HALLAZGOS (2026-10-10) ───────────────────────────────────────────────────
+// Minería (exploración, descubrimientos, nuevas minas) y tecnología: lo que anuncian las empresas,
+// recogido cada 5 minutos en el VPS (colector/hallazgos.py) de TMX Newsfile, PR Newswire y Google
+// News. De lo importante llega además un email al momento.
+const HZ = { g: 'todo', solo: false, com: true, et: null, n: 80 };
+const TIPO_HZ = { descubrimiento: ['⛏️', 'Descubrimiento'], perforacion: ['⛏️', 'Perforación'], recursos: ['⛏️', 'Estimación de recursos'],
+  estudio: ['⛏️', 'Estudio económico'], permiso: ['⛏️', 'Permiso'], produccion: ['⛏️', 'Producción o construcción'],
+  compra: ['🤝', 'Compra o fusión'], financiacion: ['💵', 'Financiación'], problema: ['🚩', 'Problema'],
+  aprobacion: ['🔬', 'Aprobación'], ensayo: ['🔬', 'Ensayo clínico'], avance: ['🔬', 'Avance'], contrato: ['🔬', 'Contrato'], patente: ['🔬', 'Patente'] };
+const METAL_HZ = { oro: 'de oro', plata: 'de plata', cobre: 'de cobre', litio: 'de Li₂O', uranio: 'de U₃O₈', 'tierras raras': 'de tierras raras',
+  'níquel': 'de níquel', zinc: 'de zinc', cobalto: 'de cobalto', antimonio: 'de antimonio', wolframio: 'de WO₃', 'estaño': 'de estaño' };
+
+function resumenHz(h) {
+  const p = [];
+  if (h.tr) {
+    const gt = h.tr.u.toLowerCase() === 'g/t';
+    p.push(`${nf(h.tr.m, h.tr.m < 10 ? 1 : 0)} m con ${nf(h.tr.l, h.tr.l < 1 ? 2 : 1)} ${gt ? 'g/t' : '%'} ${METAL_HZ[h.tr.met] || ''}`
+      + ` <span class="muted">(${nf(h.tr.gm, 0)} ${gt ? 'g·m' : '%·m'})</span>`);
+  }
+  if (h.eco) {
+    if (h.eco.van != null) p.push(`VAN ${h.eco.mon && h.eco.mon !== 'US' ? h.eco.mon : 'US'}$${nf(h.eco.van, 0)} M`);
+    if (h.eco.tir != null) p.push(`TIR ${nf(h.eco.tir, 1)} %`);
+  }
+  if (h.imp_usd) p.push(`importe ${usd(h.imp_usd * 1e6)}`);
+  return p.join(' · ');
+}
+
+function hzFiltrados() {
+  const L = S.hz?.h || [];
+  return L.filter(h => (HZ.g === 'todo' || h.g === HZ.g) && (!HZ.solo || h.imp) && (!HZ.com || !h.pr) && (!HZ.et || (h.et || []).includes(HZ.et)));
+}
+
+function tarjetaHz(h) {
+  const [ico, nom] = TIPO_HZ[h.k] || ['•', h.k];
+  const tk = (h.tk || []).slice(0, 2);
+  const enApp = tk.map(t => t.s).find(s => S.porT[s]);
+  const yahoo = tk[0] ? `https://finance.yahoo.com/quote/${encodeURIComponent(tk[0].y || tk[0].s)}` : null;
+  const res = resumenHz(h);
+  return `<div class="hz ${h.imp ? 'imp' : ''}">
+    <div class="hz-c"><span class="tag ${h.imp ? 'ok' : h.k === 'problema' ? 'mal' : ''}">${ico} ${nom}</span>${h.imp ? '<span class="tag ojo">★ Importante</span>' : ''}${h.promo ? '<span class="tag mal">Publicidad pagada</span>' : h.pr ? '<span class="tag">Prensa / opinión</span>' : ''}
+      <span class="muted hz-h">${hace(h.f.slice(0, 16) + 'Z')}</span></div>
+    <div class="hz-e"><b>${esc(h.em)}</b> ${tk.map(t => `<span class="tk">${esc(t.b)}: ${esc(t.s)}</span>`).join('')}</div>
+    ${res ? `<div class="hz-r">${res}</div>` : ''}
+    <div class="hz-t" lang="en">${esc(h.ti)}</div>
+    ${(h.et || []).length ? `<div>${h.et.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
+    <div class="hz-l">
+      <a href="${esc(h.u)}" target="_blank" rel="noopener">Comunicado ↗</a>
+      <a href="https://translate.google.com/translate?sl=en&tl=es&u=${encodeURIComponent(h.u)}" target="_blank" rel="noopener">Traducir ↗</a>
+      ${yahoo ? `<a href="${esc(yahoo)}" target="_blank" rel="noopener">Cotización ↗</a>` : ''}
+      ${enApp ? `<a data-t="${esc(enApp)}">Ficha en la app</a>` : ''}
+      ${h.px ? `<span class="muted">${esc(h.px.mon || '')} ${nf(h.px.px, h.px.px < 1 ? 3 : 2)} <span class="${cls(h.px.d1)}">${pct(h.px.d1, 1)}</span> el día del aviso</span>` : ''}
+      <span class="muted">${esc(h.fu || '')}</span>
+    </div></div>`;
+}
+
+function pintarHallazgos() {
+  const v = $('#v-hallazgos');
+  if (!v) return;
+  if (!S.hz) { v.innerHTML = '<h2>🔭 Hallazgos</h2><div class="vacio">Cargando hallazgos…</div>'; return; }
+  const L = hzFiltrados();
+  const base = (S.hz.h || []).filter(h => (HZ.g === 'todo' || h.g === HZ.g) && (!HZ.com || !h.pr));
+  const cuenta = {};
+  base.forEach(h => (h.et || []).forEach(x => { cuenta[x] = (cuenta[x] || 0) + 1; }));
+  const ets = Object.entries(cuenta).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const imp24 = (S.hz.h || []).filter(h => h.imp && Date.now() - new Date(h.f) < 864e5).length;
+  const chip = (attr, val, on, txt) => `<button class="chip ${on ? 'on' : ''}" data-${attr}="${esc(val)}">${txt}</button>`;
+  let dia = '', cuerpo = '';
+  for (const h of L.slice(0, HZ.n)) {
+    const d = new Date(h.f); const k = d.toDateString();
+    if (k !== dia) {
+      dia = k;
+      const hoy = new Date().toDateString(), ayer = new Date(Date.now() - 864e5).toDateString();
+      cuerpo += `<div class="grupo-f">${k === hoy ? 'Hoy' : k === ayer ? 'Ayer' : d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</div>`;
+    }
+    cuerpo += tarjetaHz(h);
+  }
+  v.innerHTML = `<h2>🔭 Hallazgos</h2>
+    <p class="sub">Minería y tecnología: lo que anuncian las empresas, recogido cada 5 minutos. De lo importante te llega un email al momento. ${imp24 ? `<b>${imp24} importante${imp24 === 1 ? '' : 's'} en 24 h.</b>` : ''}</p>
+    <div class="aviso"><b>Ojo:</b> las exploradoras son de lo más arriesgado de la bolsa. La gran mayoría nunca llega a abrir una mina, casi todas sacan acciones nuevas cada año para pagar las perforaciones, y cuando sale la noticia el precio suele haberse movido ya. Las cifras se leen del comunicado de forma automática: compruébalas en el original.</div>
+    <div class="chips">${chip('hzg', 'todo', HZ.g === 'todo', 'Todo')}${chip('hzg', 'min', HZ.g === 'min', '⛏️ Minería')}${chip('hzg', 'tec', HZ.g === 'tec', '🔬 Tecnología')}
+      ${chip('hzsolo', '1', HZ.solo, '★ Solo importantes')}${chip('hzcom', '1', HZ.com, 'Solo comunicados')}</div>
+    ${ets.length ? `<div class="chips">${chip('hzet', '', !HZ.et, 'Todos')}${ets.map(([x, n]) => chip('hzet', x, HZ.et === x, `${esc(x)} <span class="muted">${n}</span>`)).join('')}</div>` : ''}
+    ${cuerpo || '<div class="vacio">Nada con estos filtros en los últimos 30 días.</div>'}
+    ${L.length > HZ.n ? `<button class="btn" style="width:100%;margin-top:12px" data-hzmas="1">Ver más (${L.length - HZ.n})</button>` : ''}
+    <p class="muted" style="font-size:12px;margin-top:14px">Actualizado ${hace(S.hz.act)} · ${S.hz.n} noticias en 30 días. «Importante» sigue reglas fijas: descubrimientos, perforaciones por encima de un listón por metal (por ejemplo, 100 g·m de oro), recursos iniciales, estudios con VAN, permisos clave, producción, problemas graves, aprobaciones de la FDA, ensayos en fase 3 positivos, récords técnicos y contratos de $100 M o más.</p>`;
+}
+
+function hallazgosInicioHTML() {
+  const L = (S.hz?.h || []).filter(h => h.imp).slice(0, 3);
+  if (!L.length) return '';
+  return `<h3>🔭 Últimos hallazgos importantes</h3>${L.map(h => {
+    const [ico, nom] = TIPO_HZ[h.k] || ['•', h.k];
+    const tk = (h.tk || [])[0];
+    return `<div class="fila" data-ir="hallazgos"><div class="info"><div class="nom">${ico} ${esc(h.em)} ${tk ? `<span class="tk">${esc(tk.s)}</span>` : ''}</div>
+      <div class="det">${esc(nom)}${resumenHz(h) ? ' · ' + resumenHz(h).replace(/<[^>]+>/g, '') : ''} · ${hace(h.f.slice(0, 16) + 'Z')}</div></div></div>`;
+  }).join('')}`;
+}
+
+async function cargarHallazgos() {
+  try {
+    S.hz = await cargar('hallazgos');
+  } catch { S.hz = S.hz || { h: [], n: 0, act: null }; }
+  pintarHallazgos();
+  const b = $('#hz-inicio');
+  if (b) b.innerHTML = hallazgosInicioHTML();
+}
+
 function cerrarFicha() { $('#velo').classList.remove('on'); $('#hoja').classList.remove('on'); }
 
 // ── PRECIOS EN VIVO ──────────────────────────────────────────────────────────
@@ -1380,6 +1496,16 @@ document.addEventListener('click', ev => {
     }
     bo.dataset.seguro = '1'; bo.textContent = '¿Borrar?'; bo.classList.add('confirmar');
     return setTimeout(() => { if (bo.isConnected) { delete bo.dataset.seguro; bo.textContent = '✕'; bo.classList.remove('confirmar'); } }, 3000);
+  }
+  const hz = ev.target.closest('[data-hzg],[data-hzsolo],[data-hzcom],[data-hzet],[data-hzmas]');
+  if (hz) {
+    const d = hz.dataset;
+    if (d.hzg) HZ.g = d.hzg;
+    if (d.hzsolo) HZ.solo = !HZ.solo;
+    if (d.hzcom) HZ.com = !HZ.com;
+    if ('hzet' in d) HZ.et = d.hzet || null;
+    HZ.n = d.hzmas ? HZ.n + 80 : 80;
+    return pintarHallazgos();
   }
   const fi = ev.target.closest('[data-fipo]');
   if (fi) { ev.preventDefault(); S.filtroIpo = fi.dataset.fipo; return pintarIpos(); }
