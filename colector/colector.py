@@ -231,6 +231,7 @@ def lista_sp(url, indice):
 # bolsa está por encima). El buscador también trae preferentes, bonos y warrants de cada empresa
 # con el valor en bolsa de la empresa madre: se quitan por el nombre.
 MC_MIN_RESTO = 300e6
+EEUU = ("United States", "Puerto Rico")
 NO_ACCION = re.compile(r"\b(Warrants?|Rights?|Preferred|Notes?\s+due|Senior\s+(?:Unsecured\s+)?Notes|Subordinated|"
                        r"Debentures?|Tangible\s+Equity|Capital\s+Trust|ZONES|Fixed[- ]to[- ]Floating|Fixed[- ]Rate|"
                        r"Cumulative|Perpetual|Convertible|Interest\s+in\s+a\s+Share|Bonds?|STRATS|Trust\s+for|"
@@ -294,7 +295,11 @@ def resto_eeuu(ya):
     for x in filas_ok:
         s0, n = (x.get("symbol") or "").strip(), (x.get("name") or "").strip()
         mc, px, vol = num(x.get("marketCap")), num(x.get("lastsale")), num(x.get("volume"))
-        if not s0 or "^" in s0 or not mc or mc < MC_MIN_RESTO:
+        if not s0 or "^" in s0:
+            continue
+        # A algunas el buscador les da 0 de valor en bolsa (Blackstone Secured Lending, $5.600 M):
+        # entran si se negocian ≥ $2 M al día y Yahoo dice luego si llegan a los $300 M
+        if (mc or 0) < MC_MIN_RESTO and not (not mc and (px or 0) * (vol or 0) >= 2e6):
             continue
         if NO_ACCION.search(n) or UNIDAD.search(n) or es_spac(n, s0):
             continue
@@ -303,7 +308,7 @@ def resto_eeuu(ya):
         if t in tick_ya or k in nom_ya:
             continue
         cand = {"t": t, "n": COLA_NOMBRE.sub("", n).strip(" ,.-") or n,
-                "idx": "OTR" if (x.get("country") or "") == "United States" else "EXT",
+                "idx": "OTR" if (x.get("country") or "") in EEUU else "EXT",     # sin país: lo dice Yahoo
                 "pais": x.get("country") or "", "bolsa": x["bolsa"], "_dv": (px or 0) * (vol or 0), "_mc": mc}
         if k not in mejor or cand["_dv"] > mejor[k]["_dv"]:        # de dos clases, la que más se negocia
             mejor[k] = cand
@@ -422,7 +427,7 @@ def fundamentales(t):
          "mo": v(fd, "operatingMargins"),
          "caja": v(fd, "totalCash"), "deuda": v(fd, "totalDebt"), "rev": v(fd, "totalRevenue"),
          "fcf": v(fd, "freeCashflow"), "mc": v(pr, "marketCap"),
-         "ysector": sp.get("sector"), "yind": sp.get("industry"),
+         "ysector": sp.get("sector"), "yind": sp.get("industry"), "ypais": sp.get("country"),
          # valoración y riesgo (2026-10-05): sin esto la app no decía si algo es caro o barato
          "pe": v(sd, "trailingPE"), "fpe": v(sd, "forwardPE"), "ps": v(sd, "priceToSalesTrailing12Months"),
          "eveb": v(ks, "enterpriseToEbitda"), "div": v(sd, "dividendYield"), "beta": v(sd, "beta"),
@@ -1025,6 +1030,13 @@ def datos_sec(empresas, dias=90):
             continue
         n += 1
         rec = j.get("filings", {}).get("recent", {})
+        formas = set(rec.get("form", []))
+        if "NPORT-P" in formas and not formas & {"10-K", "10-Q", "20-F", "40-F"}:
+            # Fondo cerrado: presenta su cartera cada mes y no tiene cuentas de empresa. Yahoo no lo
+            # distingue de una BDC (Nuveen Municipal Credit pasaba el filtro; Blackstone Secured
+            # Lending, que sí es una empresa de préstamos, presenta 10-Q)
+            e["_fondo"] = True
+            continue
         al = alertas_sub(rec, desde_al)
         for k, item in (("cotiza", "3.01"), ("auditor", "4.01"), ("quiebra", "1.03")):
             if k in al:
@@ -1599,6 +1611,12 @@ def modo_completo(salida):
         if not e.get("mc") and e.get("mc0"):
             e["mc"] = e["mc0"]
         time.sleep(0.12)
+        if e["idx"] in ("OTR", "EXT"):
+            if not e.get("mc0") and (e.get("mc") or 0) < MC_MIN_RESTO:
+                continue                              # el buscador no daba su valor y no llega a $300 M
+            # 60 salían «extranjeras» por venir sin país en el buscador (LandBridge, de Texas)
+            e["pais"] = e.get("pais") or e.get("ypais") or ""
+            e["idx"] = "EXT" if e["pais"] and e["pais"] not in EEUU else "OTR"
         if ((e.get("yind") or "") == "Shell Companies" and e["idx"] not in ("500", "400", "600")
                 and (e.get("rev") or 0) < 50e6):
             continue                                  # SPAC disfrazado (Yahoo llamaba «Shell» a Vylor, del S&P 500)
@@ -1673,6 +1691,9 @@ def modo_completo(salida):
     log("SEC: alarmas en sus presentaciones, acciones, impuestos, futuro y directivos")
     FUTURO.clear()
     n_sec = datos_sec(empresas)
+    fondos_sec = [e["t"] for e in empresas if e.get("_fondo")]
+    empresas[:] = [e for e in empresas if not e.get("_fondo")]
+    log(f"  fondos cerrados quitados (la SEC los registra como fondos): {len(fondos_sec)} {fondos_sec[:12]}")
     guardar(f"{salida}/futuro.json", {"act": ahora(), "emp": FUTURO})
     log(f"  futuro: {len(FUTURO)} con su último informe de resultados "
         f"({sum(1 for x in FUTURO.values() if 'p' in x)} con previsiones, {sum(1 for x in FUTURO.values() if 'c' in x)} con frase del CEO)")
@@ -1725,7 +1746,7 @@ def modo_completo(salida):
         salida_e.append(o)
 
     guardar(f"{salida}/empresas.json", {"act": ahora(), "e": salida_e})
-    guardar(f"{salida}/hist.json", hist)
+    guardar(f"{salida}/hist.json", {t: hist[t] for t in (e["t"] for e in empresas) if t in hist})
     guardar(f"{salida}/resumen.json", {
         "act": ahora(), "n_total": len(empresas), "n_puntuadas": n_eleg, "n_sec": n_sec,
         "spy": {k: r4(spy[k]) for k in ("px", "r1d", "r1m", "r3m", "r6m", "r1a", "dd")} if spy else None,
