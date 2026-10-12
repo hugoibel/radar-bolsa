@@ -1395,6 +1395,7 @@ function tarjetaHz(h, pos) {
 function medidoHzHTML() {
   const md = S.hz?.med, r = md?.imp;
   if (!r) return '';
+  const cls = x => x == null || Math.abs(x) < 0.0005 ? 'muted' : x > 0 ? 'up' : 'down';   // «+0,0 %» no es una subida
   if (!(r.n >= 10)) return `<div class="aviso"><b>📏 Lo medido en vivo:</b> cada aviso importante se sigue después en bolsa, comprando al cierre del día de la noticia, para saber si esto sirve de algo. De momento hay ${r.n || 0} con sesiones posteriores; en cuanto haya 10, salen aquí las cifras.</div>`;
   const vs = r.vs != null ? ` Frente al fondo de su sector en las mismas fechas: <b class="${cls(r.vs)}">${pts(r.vs)}</b>.` : '';
   // la comparación con y sin FOMO, solo cuando hay bastantes de cada (si no, es ruido)
