@@ -108,10 +108,10 @@ async function cargar(nombre) {
 
 async function iniciar() {
   try {
-    const [res, emp, ipos, not, fon, med, dem, sal] = await Promise.all([cargar('resumen'), cargar('empresas'), cargar('ipos'),
+    const [res, emp, ipos, not, fon, med, sal] = await Promise.all([cargar('resumen'), cargar('empresas'), cargar('ipos'),
       cargar('noticias').catch(() => null), cargar('fondos').catch(() => null), cargar('medido').catch(() => null),
-      cargar('demandas').catch(() => null), cargar('salidas').catch(() => null)]);
-    S.res = res; S.emp = emp.e; S.ipos = ipos; S.not = not; S.fondos = fon; S.bt = med; S.dem = dem; S.sal = sal;
+      cargar('salidas').catch(() => null)]);
+    S.res = res; S.emp = emp.e; S.ipos = ipos; S.not = not; S.fondos = fon; S.bt = med; S.sal = sal;
     S.emp.forEach(e => { S.porT[e.t] = e; });
   } catch (err) {
     $('#cargando').innerHTML = `<div class="vacio">No se pudieron cargar los datos.<br><small>${esc(err.message)}</small><br><br><button class="btn" onclick="location.reload()">Reintentar</button></div>`;
@@ -130,6 +130,9 @@ async function iniciar() {
   // El futuro según cada empresa (textos de sus informes, ~1,5 MB): se baja después, sin
   // retrasar la apertura. Si la ficha abierta lo necesitaba, se repinta su sección.
   cargar('futuro').then(f => { S.fut = f; repintarFuturo(); }).catch(() => { S.fut = { emp: {} }; });
+  // Demandas de todas las empresas (~1,2 MB, solo para las fichas): también en segundo plano (2026-10-12;
+  // antes retrasaban la apertura de la app). Mientras llegan, la ficha mira las noticias guardadas.
+  cargar('demandas').then(d => { S.dem = d; }).catch(() => { S.dem = null; }).then(repintarFuturo);
   // Hallazgos: se recogen cada 5 min en el VPS; con la app abierta se refrescan cada 10 min
   cargarHallazgos();
   setInterval(cargarHallazgos, 10 * 60 * 1000);
@@ -354,7 +357,11 @@ function pintarPotencial() {
   if (S.filtroTema !== 'todos') L = L.filter(e => e.tema === S.filtroTema);
   L.sort((a, b) => b.sc - a.sc);
   $('#ideas-c').innerHTML = `
-    <p class="sub">${S.res.n_puntuadas} empresas pequeñas y medianas (valor en bolsa ≤ $10.000 M, con ventas y liquidez) puntuadas de 0 a 100: crecimiento de ventas sostenido 35&nbsp;%, margen bruto 15&nbsp;%, margen operativo 15&nbsp;%, solidez 15&nbsp;%, tema importante 10&nbsp;%, interés creciente 10&nbsp;%. La cifra de la derecha es el crecimiento de ventas: el menor entre el anual y el del último trimestre, para que un cobro puntual no engañe. La nota se recalcula cada día, pero sale de las cuentas trimestrales: se mueve sobre todo cuando la empresa presenta resultados (casi todas, entre 2 y 7 semanas después de cerrar marzo, junio, septiembre y diciembre). La flecha ▲▼ junto al precio es cuánto ha cambiado su nota en 7 días.</p>
+    <p class="sub">${S.res.n_puntuadas} empresas pequeñas y medianas puntuadas de 0 a 100 por cómo crecen y la calidad de su negocio. A la derecha, su crecimiento de ventas.</p>
+    <details class="hz-como"><summary>Cómo se puntúa</summary>
+      <p>Empresas de hasta $10.000 M en bolsa, con ventas y liquidez. Pesos: crecimiento de ventas sostenido 35&nbsp;%, margen bruto 15&nbsp;%, margen operativo 15&nbsp;%, solidez 15&nbsp;%, tema importante 10&nbsp;%, interés creciente 10&nbsp;%.</p>
+      <p>El crecimiento de ventas es el menor entre el anual y el del último trimestre, para que un cobro puntual no engañe. La nota se recalcula cada día, pero sale de las cuentas trimestrales: se mueve sobre todo cuando la empresa presenta resultados (casi todas, entre 2 y 7 semanas después de cerrar marzo, junio, septiembre y diciembre). La flecha ▲▼ junto al precio es cuánto ha cambiado su nota en 7 días.</p>
+    </details>
     ${medidoHTML('potencial') || '<div class="aviso"><b>Regla, no bola de cristal:</b> la puntuación ordena por calidad y crecimiento, pero <b>no se ha probado</b> que gane al índice. Úsala como lista para investigar.</div>'}
     <div class="chips">${temas.map(([k, t]) => `<button class="chip ${S.filtroTema === k ? 'on' : ''}" data-ftema="${k}">${esc(t)}</button>`).join('')}</div>
     ${L.length ? L.slice(0, 100).map(e => filaEmp(e, `<b class="${cls(e.cr)}">${pct(e.cr, 0)}</b><span class="muted">ventas</span>`)).join('') : '<div class="vacio">Ninguna empresa de este tema pasa los filtros.</div>'}`;
@@ -458,7 +465,10 @@ function pintarGuia() {
       <dt>Lo que esperan los analistas</dt><dd>La media de lo que los analistas creen que crecerán sus ventas y su beneficio este año y el siguiente, y cuánto han cambiado esa previsión en 3 meses. Lo que ya se espera suele estar en el precio: lo que mueve la acción es la sorpresa.</dd>
       <dt>Gobierno corporativo (ISS)</dt><dd>ISS es la empresa que aconseja a los grandes fondos cómo votar en las juntas. Puntúa de 1 (poco riesgo) a 10 (mucho) el consejo, los sueldos de los directivos, los derechos del accionista y la auditoría. Un 10 suele venir de acciones de doble voto (los fundadores mandan con poco dinero) o de un consejo poco independiente; no quiere decir que la empresa vaya mal.</dd>
       <dt>En manos de los de dentro</dt><dd>La parte de la empresa que tienen sus directivos, consejeros y fundadores. Si es grande, ganan o pierden contigo.</dd>
-      <dt>Hallazgos</dt><dd>Las noticias de minería (exploración, descubrimientos, nuevas minas) y tecnología (aprobaciones de la FDA, ensayos clínicos, récords técnicos, contratos) que publican las propias empresas, recogidas cada 5 minutos de TMX Newsfile, PR Newswire y Google News. De lo importante llega un email al momento. Los artículos de opinión de webs de bolsa se marcan como «prensa» y la publicidad pagada de los promotores de acciones, como «publicidad»: nunca dan aviso.</dd>
+      <dt>Hallazgos</dt><dd>Las noticias de minería (exploración, descubrimientos, nuevas minas) y tecnología (aprobaciones de la FDA, ensayos clínicos, récords técnicos, contratos) que publican las propias empresas, recogidas cada 5 minutos de TMX Newsfile, PR Newswire, CNW, la bolsa australiana (sus anuncios oficiales, con el PDF) y Google News. Solo salen las de empresas que cotizan. De lo importante llega un email al momento. La publicidad pagada de los promotores de acciones no sale nunca.</dd>
+      <dt>Ranking de hallazgos</dt><dd>Cada noticia lleva tres notas de 0 a 100. <b>Importancia</b>: el tipo de noticia y sus cifras comparadas con lo que vale la empresa (un contrato de $50 M es enorme para una empresa de $100 M y nada para una de $100.000 M). <b>Crecimiento</b>: lo que ha hecho la acción en 1, 3 y 5 años (50 = plana). <b>FOMO</b>: el ruido de ahora (subida desde la noticia, volumen, webs que la cuentan). El ranking las mezcla: 50 % importancia, 25 % crecimiento y 25 % FOMO; puedes ordenar por cada una.</dd>
+      <dt>FOMO</dt><dd>«Miedo a quedarse fuera»: las ganas de comprar porque todo el mundo habla de algo que ya está subiendo. En la app es una medida del ruido, no una recomendación: cuando el FOMO es alto, la subida suele haber pasado ya. La pestaña Hallazgos mide en vivo qué hacen después las acciones con aviso, también separando las que llegaban con FOMO.</dd>
+      <dt>Calidad de la fuente</dt><dd>«✓ Comunicado oficial»: lo publica la propia empresa (agencia de comunicados o la bolsa). «Copia del comunicado»: otra web que lo reproduce. «Resumen automático»: una web que lo reescribe, muchas veces con IA, y puede equivocarse con las cifras. «Prensa u opinión»: un artículo sobre la empresa. Si la misma noticia sale en varias webs, la app la junta y se queda con la versión oficial. El ✓ junto al ticker quiere decir que su nombre oficial casa con el de la noticia.</dd>
       <dt>Perforación: metros, g/t y g·m</dt><dd>«20 m con 5 g/t de oro» quiere decir que en 20 metros de roca hay de media 5 gramos de oro por tonelada. Multiplicando sale la «fuerza» del tramo: 100 g·m. La app llama importante a partir de unos 100 g·m en oro, 5.000 en plata o 150 %·m en cobre. Un tramo bueno no es una mina: hacen falta muchos, seguidos, cerca de la superficie y en un sitio donde se pueda construir.</dd>
       <dt>VAN y TIR de un estudio</dt><dd>Un estudio económico (PEA, prefactibilidad o factibilidad) calcula cuánto valdría la mina hoy (VAN, valor actual neto) y qué rentabilidad daría la inversión (TIR). Una PEA es muy preliminar; la factibilidad es la que de verdad cuenta para conseguir financiación.</dd>
       <dt>TSXV, CSE, ASX, OTC</dt><dd>Muchas exploradoras cotizan en Canadá (TSX Venture, CSE) o Australia (ASX). Casi todas tienen además un ticker en el mercado OTC de EE.UU. (acaba en F, por ejemplo BHSIF), que es el que puedes comprar desde un bróker de EE.UU. Ojo: en el OTC se negocia poco y el precio salta mucho.</dd>
@@ -473,7 +483,7 @@ function pintarGuia() {
       <dt>¿Por qué ninguna lista gana al índice?</dt><dd>Porque lo que ve esta app (ventas, márgenes, caídas, compras de directivos) lo ven también millones de inversores y programas, y el precio ya lo incluye. Ganar al índice de forma fiable es dificilísimo incluso para profesionales: por eso la base de tu dinero debería ser un fondo índice.</dd>
     </dl></div>
     <h3>De dónde salen los datos</h3>
-    <div class="card" style="font-size:14px">Un programa en un servidor revisa el mercado <b>cada 4 horas</b> (calendario y noticias) y hace una pasada completa <b>cada día al cierre</b> de la bolsa: precios, valoración y finanzas de ~1.800 empresas y de los principales fondos índice (Yahoo Finance), calendario de salidas a bolsa (Nasdaq), compras y ventas de directivos (SEC), interés (Wikipedia) y titulares (Google News). La calculadora usa la serie del S&P 500 de Robert Shiller (Yale) desde 1926. Los precios en vivo llegan al segundo mientras la bolsa está abierta.<br><br>Las listas de Ideas se han medido contra el índice con las cuentas que las empresas presentaron a la SEC entre 2011 y 2025 (lo que se sabía en cada fecha, sin mirar al futuro).<br><br><b>Esto no es consejo de inversión.</b> Las cifras pueden tener errores de la fuente. Antes de invertir, compruébalas en la web de la empresa.</div>
+    <div class="card" style="font-size:14px">Un programa en un servidor revisa el mercado <b>cada 4 horas</b> (calendario y noticias), los hallazgos <b>cada 5 minutos</b>, y hace una pasada completa <b>cada día al cierre</b> de la bolsa: precios, valoración y finanzas de ${(S.res?.n_total || 3500).toLocaleString('es-ES')} empresas y de los principales fondos índice (Yahoo Finance), calendario de salidas a bolsa (Nasdaq), compras y ventas de directivos (SEC), interés (Wikipedia) y titulares (Google News). La calculadora usa la serie del S&P 500 de Robert Shiller (Yale) desde 1926. Los precios en vivo llegan al segundo mientras la bolsa está abierta.<br><br>Las listas de Ideas se han medido contra el índice con las cuentas que las empresas presentaron a la SEC entre 2011 y 2025 (lo que se sabía en cada fecha, sin mirar al futuro).<br><br><b>Esto no es consejo de inversión.</b> Las cifras pueden tener errores de la fuente. Antes de invertir, compruébalas en la web de la empresa.</div>
     <button class="btn" style="margin-top:14px;width:100%" data-ir="inicio">← Volver</button>`;
 }
 
@@ -1024,7 +1034,8 @@ function repintarFuturo() {
   const t = $('#hoja.on .tk')?.textContent;
   const e = t && S.porT[t];
   if (!e) return;
-  const a = $('#ficha-futuro'), b = $('#ficha-dir'), c = $('#ficha-pq');
+  const a = $('#ficha-futuro'), b = $('#ficha-dir'), c = $('#ficha-pq'), d = $('#ficha-dem');
+  if (d) d.innerHTML = demandasFichaHTML(e);
   if (c) c.innerHTML = porQueHTML(e);
   if (a) a.innerHTML = futuroHTML(e);
   if (b) b.innerHTML = direccionHTML(e);
@@ -1058,6 +1069,17 @@ function porQueHTML(e) {
     </div>
     ${an}
     <p class="muted" style="font-size:12px;margin:8px 0 0">Son hechos de la empresa, no una predicción. Lo medimos: ninguna de estas señales, por sí sola, ha ganado al S&P 500 de forma fiable. Si no sabes explicar por qué esta acción y no un fondo índice, mejor el fondo índice.</p>`;
+}
+
+function demandasFichaHTML(e) {
+  if (S.dem === undefined) return '<h3>Demandas e investigaciones · 90 días</h3><div class="card muted" style="font-size:13px">Cargando…</div>';
+  if (!S.dem) return '';
+  const L = demandasDe(e).todas;
+  const tag = { fis: '<span class="tag mal">Hacienda</span>', leg: '<span class="tag ojo">Demanda o investigación</span>', buf: '<span class="tag">Bufete</span>' };
+  return `<h3>Demandas e investigaciones · 90 días</h3><div class="card">${L.length
+    ? L.map(x => `<a class="noti" href="${esc(x.url)}" target="_blank" rel="noopener">${tag[x.k] || ''} ${esc(x.ti)}<small>${esc(x.fu)} · ${hace(x.f)}</small></a>`).join('')
+    : '<div class="muted" style="font-size:13px">Sin titulares de demandas, investigaciones ni problemas con Hacienda en los últimos 90 días.</div>'}
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Titulares de Google News que nombran a la empresa. Se revisan todas cada día o dos; un titular no es una condena.</p></div>`;
 }
 
 function abrirFicha(t) {
@@ -1132,15 +1154,8 @@ function abrirFicha(t) {
     <h3>¿Cara o barata?</h3><div class="met">${val.map(([a, b, c]) => `<div><span class="et">${a}</span><b>${b}</b><em>${c}</em></div>`).join('')}</div>
     <p class="muted" style="font-size:12px;margin:8px 0 0">Un PER o un precio/ventas bajos no significan «ganga»: a veces el mercado ya espera problemas. Sirven para comparar con empresas parecidas, no para decidir solos. Rentabilidades de arriba con dividendos.</p>
     <h3>Noticias</h3><div class="card">${noticiasHTML(notis, 'No hay titulares guardados de esta empresa.')}</div>
-    ${(() => {
-      if (!S.dem) return '';
-      const L = demandasDe(e).todas;
-      const tag = { fis: '<span class="tag mal">Hacienda</span>', leg: '<span class="tag ojo">Demanda o investigación</span>', buf: '<span class="tag">Bufete</span>' };
-      return `<h3>Demandas e investigaciones · 90 días</h3><div class="card">${L.length
-        ? L.map(x => `<a class="noti" href="${esc(x.url)}" target="_blank" rel="noopener">${tag[x.k] || ''} ${esc(x.ti)}<small>${esc(x.fu)} · ${hace(x.f)}</small></a>`).join('')
-        : '<div class="muted" style="font-size:13px">Sin titulares de demandas, investigaciones ni problemas con Hacienda en los últimos 90 días.</div>'}
-        <p class="muted" style="font-size:12px;margin:10px 0 0">Titulares de Google News que nombran a la empresa. Se revisan todas cada día o dos; un titular no es una condena.</p></div>`;
-    })()}
+    <div id="ficha-hz">${hallazgosFichaHTML(e)}</div>
+    <div id="ficha-dem">${demandasFichaHTML(e)}</div>
     <div class="enlaces">
       <a class="btn pri" href="https://finance.yahoo.com/quote/${esc(e.t)}" target="_blank" rel="noopener">Yahoo Finance</a>
       <a class="btn" href="https://news.google.com/search?q=${qn}" target="_blank" rel="noopener">Más noticias</a>
@@ -1243,17 +1258,36 @@ function abrirSalida(k) {
   $('#cerrar').onclick = cerrarFicha;
 }
 
-// ── HALLAZGOS (2026-10-10) ───────────────────────────────────────────────────
+// ── HALLAZGOS (2026-10-10; v2 2026-10-12) ────────────────────────────────────
 // Minería (exploración, descubrimientos, nuevas minas) y tecnología: lo que anuncian las empresas,
-// recogido cada 5 minutos en el VPS (colector/hallazgos.py) de TMX Newsfile, PR Newswire y Google
-// News. De lo importante llega además un email al momento.
-const HZ = { g: 'todo', solo: false, com: true, et: null, n: 80 };
-const TIPO_HZ = { descubrimiento: ['⛏️', 'Descubrimiento'], perforacion: ['⛏️', 'Perforación'], recursos: ['⛏️', 'Estimación de recursos'],
-  estudio: ['⛏️', 'Estudio económico'], permiso: ['⛏️', 'Permiso'], produccion: ['⛏️', 'Producción o construcción'],
-  compra: ['🤝', 'Compra o fusión'], financiacion: ['💵', 'Financiación'], problema: ['🚩', 'Problema'],
-  aprobacion: ['🔬', 'Aprobación'], ensayo: ['🔬', 'Ensayo clínico'], avance: ['🔬', 'Avance'], contrato: ['🔬', 'Contrato'], patente: ['🔬', 'Patente'] };
+// recogido cada 5 minutos en el VPS (colector/hallazgos.py) de TMX Newsfile, PR Newswire, CNW, la
+// bolsa australiana (ASX) y Google News. De lo importante llega además un email al momento.
+// v2 (pedido del usuario): numeradas por importancia, crecimiento histórico y FOMO (notas de 0 a 100
+// que calcula el colector), con la calidad de la fuente y lo medido en vivo después de cada aviso.
+const HZ = Object.assign({ g: 'todo', solo: false, com: true, of: false, et: null, n: 40, orden: 'rank', per: 7 },
+  LS.get('rb_hz', {}));
+const guardarHZ = () => LS.set('rb_hz', { orden: HZ.orden, per: HZ.per });
+const TIPO_HZ = { descubrimiento: ['⛏️', 'Descubrimiento'], perforacion: ['⛏️', 'Perforación'], programa: ['⛏️', 'Plan de perforación'],
+  recursos: ['⛏️', 'Estimación de recursos'], estudio: ['⛏️', 'Estudio económico'], permiso: ['⛏️', 'Permiso'],
+  produccion: ['⛏️', 'Producción o construcción'], acuerdo: ['🤝', 'Acuerdo'], compra: ['🤝', 'Compra o fusión'],
+  financiacion: ['💵', 'Financiación'], problema: ['🚩', 'Problema'], aprobacion: ['🔬', 'Aprobación'],
+  regulatorio: ['🔬', 'Paso regulatorio'], ensayo: ['🔬', 'Ensayo clínico'], avance: ['🔬', 'Avance'],
+  contrato: ['🔬', 'Contrato'], patente: ['🔬', 'Patente'] };
 const METAL_HZ = { oro: 'de oro', plata: 'de plata', cobre: 'de cobre', litio: 'de Li₂O', uranio: 'de U₃O₈', 'tierras raras': 'de tierras raras',
   'níquel': 'de níquel', zinc: 'de zinc', cobalto: 'de cobalto', antimonio: 'de antimonio', wolframio: 'de WO₃', 'estaño': 'de estaño' };
+// Calidad de la fuente (la pone el colector): de la propia empresa, copia, resumen automático o prensa
+const NIVEL_HZ = { of: ['ok', '✓ Comunicado oficial', 'Lo publica la propia empresa (agencia de comunicados o la bolsa).'],
+  co: ['', 'Copia del comunicado', 'Otra web que reproduce el comunicado de la empresa.'],
+  re: ['ojo', 'Resumen automático', 'Una web que reescribe el comunicado, a menudo con IA: puede tener errores. Mira el original.'],
+  pe: ['', 'Prensa u opinión', 'Un artículo sobre la empresa, no su comunicado.'] };
+const ORDEN_HZ = [['rank', '🏆 Ranking'], ['imp', '⭐ Importancia'], ['crec', '📈 Crecimiento'], ['fomo', '🔥 FOMO'], ['fecha', '🕒 Recientes']];
+const PER_HZ = [[1, '24 h'], [3, '3 días'], [7, '7 días'], [30, '30 días']];
+const EEUU = ['NYSE', 'NASDAQ', 'NYSE American'];
+
+const mercadoHz = h => (h.ys && S.hz?.m?.[h.ys]) || null;
+// Ranking: 50 % importancia + 25 % crecimiento histórico + 25 % FOMO (sin datos de bolsa cuentan 40 y 0)
+const rankHz = h => Math.round(0.5 * (h.si ?? 0) + 0.25 * (h.sg ?? 40) + 0.25 * (h.sf ?? 0));
+const tramoTxt = (x, cortes, txt) => txt[cortes.findIndex(c => x >= c)];
 
 function resumenHz(h) {
   const p = [];
@@ -1264,38 +1298,111 @@ function resumenHz(h) {
   }
   if (h.eco) {
     if (h.eco.van != null) p.push(`VAN ${h.eco.mon && h.eco.mon !== 'US' ? h.eco.mon : 'US'}$${nf(h.eco.van, 0)} M`);
-    if (h.eco.tir != null) p.push(`TIR ${nf(h.eco.tir, 1)} %`);
+    if (h.eco.tir != null) p.push(`TIR ${nf(h.eco.tir, 1)} %`);
   }
-  if (h.imp_usd) p.push(`importe ${usd(h.imp_usd * 1e6)}`);
+  if (h.imp_usd && ['contrato', 'compra', 'acuerdo', 'financiacion'].includes(h.k))
+    p.push(`importe ${h.imp_mon && h.imp_mon !== 'USD' ? h.imp_mon + ' ' : ''}${usd(h.imp_usd * 1e6)}`);
   return p.join(' · ');
 }
 
-function hzFiltrados() {
-  const L = S.hz?.h || [];
-  return L.filter(h => (HZ.g === 'todo' || h.g === HZ.g) && (!HZ.solo || h.imp) && (!HZ.com || !h.pr) && (!HZ.et || (h.et || []).includes(HZ.et)));
+function hzBase() {             // periodo, grupo y fuente: sobre esto se cuentan las etiquetas
+  const lim = Date.now() - HZ.per * 864e5;
+  return (S.hz?.h || []).filter(h => new Date(h.f) >= lim && (HZ.g === 'todo' || h.g === HZ.g)
+    && (!HZ.com || !h.pr) && (!HZ.of || h.nv === 'of'));
 }
 
-function tarjetaHz(h) {
+function hzFiltrados() {
+  const L = hzBase().filter(h => (!HZ.solo || h.imp) && (!HZ.et || (h.et || []).includes(HZ.et)));
+  const k = { rank: rankHz, imp: h => h.si ?? -1, crec: h => h.sg ?? -1, fomo: h => h.sf ?? -1 }[HZ.orden];
+  return L.sort((a, b) => (k ? k(b) - k(a) : 0) || b.f.localeCompare(a.f));
+}
+
+// Las tres notas de cada noticia, con su barra y lo que hay detrás
+function notasHz(h) {
+  const m = mercadoHz(h), fx = h.fx || {};
+  const barra = (v, col) => `<i class="nb"><u style="width:${Math.max(4, v ?? 0)}%;background:${v == null ? 'var(--line)' : col}"></u></i>`;
+  const imp = `<div class="nota"><span>Importancia</span><b>${h.si ?? '—'}</b>${barra(h.si, 'var(--acc)')}
+    <em>${h.si == null ? '' : tramoTxt(h.si, [75, 55, 35, 0], ['muy alta', 'alta', 'media', 'baja'])}</em></div>`;
+  const c = [];
+  if (m?.r1a != null) c.push(`1 año ${pct(m.r1a, 0)}`);
+  if (m?.r5a != null) c.push(`5 años ${pct(m.r5a, 0)}/año`);
+  else if (m?.r3a != null) c.push(`3 años ${pct(m.r3a, 0)}/año`);
+  const colC = h.sg == null ? 'var(--txt3)' : h.sg >= 55 ? 'var(--up)' : h.sg <= 45 ? 'var(--down)' : 'var(--txt3)';
+  const crec = `<div class="nota"><span>Crecimiento</span><b>${h.sg ?? '—'}</b>${barra(h.sg, colC)}
+    <em>${c.join(' · ') || 'sin datos de bolsa'}</em></div>`;
+  const f = [];
+  if (fx.rs != null) f.push(`<span class="${cls(fx.rs)}">${pct(fx.rs, 0)}</span> desde la noticia`);
+  if (fx.vx != null && fx.vx >= 1.3) f.push(`volumen ×${nf(fx.vx, fx.vx < 10 ? 1 : 0)}`);
+  if ((h.nf || 1) > 1) f.push(`${h.nf} webs`);
+  const fomo = `<div class="nota"><span>FOMO</span><b>${h.sf ?? '—'}${h.sf >= 45 ? ' 🔥' : ''}</b>${barra(h.sf, 'var(--warn)')}
+    <em>${f.join(' · ') || (h.sf == null ? 'sin datos de bolsa' : 'sin movimiento')}</em></div>`;
+  return `<div class="hz-m">${imp}${crec}${fomo}</div>`;
+}
+
+// La acción en el último año (semanal) y el punto de la noticia
+function sparkHz(h) {
+  const m = mercadoHz(h);
+  const v = m?.sp;
+  if (!v || v.length < 8) return '';
+  const W = 300, H = 34, P = 3, mn = Math.min(...v), mx = Math.max(...v);
+  const x = i => P + (W - 2 * P) * i / (v.length - 1), y = z => H - P - (H - 2 * P) * (z - mn) / ((mx - mn) || 1);
+  const col = v[v.length - 1] >= v[0] ? 'var(--up)' : 'var(--down)';
+  let punto = '';
+  const tn = new Date(h.f).getTime() / 1000;
+  if (m.sp0 && m.sp1 && tn >= m.sp0) {
+    const i = Math.min(1, (tn - m.sp0) / ((m.sp1 - m.sp0) || 1)) * (v.length - 1), i0 = Math.floor(i);
+    const z = v[i0] + (v[Math.min(v.length - 1, i0 + 1)] - v[i0]) * (i - i0);
+    punto = `<i class="dot" style="left:${(100 * x(i) / W).toFixed(1)}%;top:${(100 * y(z) / H).toFixed(1)}%" title="La noticia"></i>`;
+  }
+  return `<div class="hz-sp" title="La acción en el último año; el punto naranja es la noticia"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <polyline points="${v.map((z, i) => `${x(i).toFixed(1)},${y(z).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="1.7" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>${punto}<span>1 año</span></div>`;
+}
+
+function tarjetaHz(h, pos) {
   const [ico, nom] = TIPO_HZ[h.k] || ['•', h.k];
   const tk = (h.tk || []).slice(0, 2);
-  const enApp = tk.map(t => t.s).find(s => S.porT[s]);
-  const yahoo = tk[0] ? `https://finance.yahoo.com/quote/${encodeURIComponent(tk[0].y || tk[0].s)}` : null;
+  const m = mercadoHz(h);
+  const enApp = (h.tk || []).filter(t => EEUU.includes(t.b)).map(t => t.s).find(s => S.porT[s]);
+  const yahoo = h.ys || tk[0]?.y || tk[0]?.s;
   const res = resumenHz(h);
-  return `<div class="hz ${h.imp ? 'imp' : ''}">
-    <div class="hz-c"><span class="tag ${h.imp ? 'ok' : h.k === 'problema' ? 'mal' : ''}">${ico} ${nom}</span>${h.imp ? '<span class="tag ojo">★ Importante</span>' : ''}${h.promo ? '<span class="tag mal">Publicidad pagada</span>' : h.pr ? '<span class="tag">Prensa / opinión</span>' : ''}
+  const nv = NIVEL_HZ[h.nv];
+  const ver = h.tkv >= 1 ? `<span class="ver" title="${h.tkv === 2 ? 'Ticker oficial de la bolsa' : 'Ticker comprobado: el nombre oficial casa con el de la noticia'}">✓</span>` : '';
+  const pdf = /\/file\//.test(h.u || '');
+  return `<div class="hz ${h.imp ? 'imp' : ''} ${h.k === 'problema' ? 'neg' : ''}">
+    <div class="hz-c">${pos ? `<span class="hz-n">${pos}</span>` : ''}<span class="tag ${h.imp ? 'ok' : h.k === 'problema' ? 'mal' : ''}">${ico} ${nom}</span>${h.imp ? '<span class="tag ojo">★ Importante</span>' : ''}
       <span class="muted hz-h">${hace(h.f.slice(0, 16) + 'Z')}</span></div>
-    <div class="hz-e"><b>${esc(h.em)}</b> ${tk.map(t => `<span class="tk">${esc(t.b)}: ${esc(t.s)}</span>`).join('')}</div>
+    <div class="hz-e"><b>${esc(h.em)}</b> ${tk.map(t => `<span class="tk">${esc(t.b)}: ${esc(t.s)}</span>`).join('')}${ver}${m?.mc ? ` <span class="muted hz-mc">· vale ${usd(m.mc)}</span>` : ''}</div>
     ${res ? `<div class="hz-r">${res}</div>` : ''}
     <div class="hz-t" lang="en">${esc(h.ti)}</div>
-    ${(h.et || []).length ? `<div>${h.et.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
+    ${notasHz(h)}
+    ${sparkHz(h)}
     <div class="hz-l">
-      <a href="${esc(h.u)}" target="_blank" rel="noopener">Comunicado ↗</a>
-      <a href="https://translate.google.com/translate?sl=en&tl=es&u=${encodeURIComponent(h.u)}" target="_blank" rel="noopener">Traducir ↗</a>
-      ${yahoo ? `<a href="${esc(yahoo)}" target="_blank" rel="noopener">Cotización ↗</a>` : ''}
+      ${nv ? `<span class="tag ${nv[0]}" title="${esc(nv[2])}">${nv[1]}${h.fu ? ' · ' + esc(h.fu) : ''}</span>` : ''}
+      ${(h.et || []).map(x => `<span class="tag">${esc(x)}</span>`).join('')}
+    </div>
+    <div class="hz-l">
+      <a href="${esc(h.u)}" target="_blank" rel="noopener">${pdf ? 'Anuncio oficial (PDF)' : 'Comunicado'} ↗</a>
+      ${pdf ? '' : `<a href="https://translate.google.com/translate?sl=en&tl=es&u=${encodeURIComponent(h.u)}" target="_blank" rel="noopener">Traducir ↗</a>`}
+      ${yahoo ? `<a href="https://finance.yahoo.com/quote/${encodeURIComponent(yahoo)}" target="_blank" rel="noopener">Cotización ↗</a>` : ''}
       ${enApp ? `<a data-t="${esc(enApp)}">Ficha en la app</a>` : ''}
       ${h.px ? `<span class="muted">${esc(h.px.mon || '')} ${nf(h.px.px, h.px.px < 1 ? 3 : 2)} <span class="${cls(h.px.d1)}">${pct(h.px.d1, 1)}</span> el día del aviso</span>` : ''}
-      <span class="muted">${esc(h.fu || '')}</span>
-    </div></div>`;
+    </div>
+    ${(h.fs || []).length > 1 ? `<details class="hz-fs"><summary>La cuentan ${h.fs.length} webs</summary>${h.fs.map(([fu, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(fu || 'web')} ↗</a>`).join('')}</details>` : ''}
+  </div>`;
+}
+
+// Lo medido en vivo: qué hizo la acción después de cada aviso (lo calcula el colector)
+function medidoHzHTML() {
+  const md = S.hz?.med, r = md?.imp;
+  if (!r) return '';
+  if (!(r.n >= 10)) return `<div class="aviso"><b>📏 Lo medido en vivo:</b> cada aviso importante se sigue después en bolsa, comprando al cierre del día de la noticia, para saber si esto sirve de algo. De momento hay ${r.n || 0} con sesiones posteriores; en cuanto haya 10, salen aquí las cifras.</div>`;
+  const vs = r.vs != null ? ` Frente al fondo de su sector en las mismas fechas: <b class="${cls(r.vs)}">${pts(r.vs)}</b>.` : '';
+  // la comparación con y sin FOMO, solo cuando hay bastantes de cada (si no, es ruido)
+  const fo = md.fomo?.n >= 8 && md.sin?.n >= 8 && md.fomo.media != null && md.sin.media != null
+    ? ` Las que llegaban con FOMO (ya disparadas el día de la noticia): <b class="${cls(md.fomo.media)}">${pct(md.fomo.media)}</b> de media; las demás: <b class="${cls(md.sin.media)}">${pct(md.sin.media)}</b>.`
+    : ` Aún hay pocas que llegaran con FOMO (${md.fomo?.n || 0}) para compararlas con las demás.`;
+  const rx = md.rx != null && Math.abs(md.rx) >= 0.01 ? ` El salto típico del propio día de la noticia fue de ${pct(md.rx)}: ese se lo lleva quien ya tenía la acción.` : '';
+  return `<div class="aviso ${r.med > 0 ? 'aviso-ok' : ''}"><b>📏 Lo medido en vivo (avisos importantes, 30 días):</b> comprando al cierre del día de la noticia, <b class="${cls(r.media)}">${pct(r.media)}</b> de media (mediana ${pct(r.med)}) al cabo de unas ${r.ses} sesiones; acaban arriba ${r.suben} de cada 100 (${r.n} avisos; muchas pequeñas apenas cotizan).${vs}${fo}${rx} <span class="muted">Muestra pequeña y de pocas semanas: orientativo.</span></div>`;
 }
 
 function pintarHallazgos() {
@@ -1303,42 +1410,66 @@ function pintarHallazgos() {
   if (!v) return;
   if (!S.hz) { v.innerHTML = '<h2>🔭 Hallazgos</h2><div class="vacio">Cargando hallazgos…</div>'; return; }
   const L = hzFiltrados();
-  const base = (S.hz.h || []).filter(h => (HZ.g === 'todo' || h.g === HZ.g) && (!HZ.com || !h.pr));
   const cuenta = {};
-  base.forEach(h => (h.et || []).forEach(x => { cuenta[x] = (cuenta[x] || 0) + 1; }));
+  hzBase().forEach(h => (h.et || []).forEach(x => { cuenta[x] = (cuenta[x] || 0) + 1; }));
   const ets = Object.entries(cuenta).sort((a, b) => b[1] - a[1]).slice(0, 12);
   const imp24 = (S.hz.h || []).filter(h => h.imp && Date.now() - new Date(h.f) < 864e5).length;
   const chip = (attr, val, on, txt) => `<button class="chip ${on ? 'on' : ''}" data-${attr}="${esc(val)}">${txt}</button>`;
+  const porFecha = HZ.orden === 'fecha';
   let dia = '', cuerpo = '';
-  for (const h of L.slice(0, HZ.n)) {
-    const d = new Date(h.f); const k = d.toDateString();
-    if (k !== dia) {
-      dia = k;
-      const hoy = new Date().toDateString(), ayer = new Date(Date.now() - 864e5).toDateString();
-      cuerpo += `<div class="grupo-f">${k === hoy ? 'Hoy' : k === ayer ? 'Ayer' : d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</div>`;
+  L.slice(0, HZ.n).forEach((h, i) => {
+    if (porFecha) {
+      const d = new Date(h.f), k = d.toDateString();
+      if (k !== dia) {
+        dia = k;
+        const hoy = new Date().toDateString(), ayer = new Date(Date.now() - 864e5).toDateString();
+        cuerpo += `<div class="grupo-f">${k === hoy ? 'Hoy' : k === ayer ? 'Ayer' : d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}</div>`;
+      }
     }
-    cuerpo += tarjetaHz(h);
-  }
+    cuerpo += tarjetaHz(h, porFecha ? 0 : i + 1);
+  });
   v.innerHTML = `<h2>🔭 Hallazgos</h2>
-    <p class="sub">Minería y tecnología: lo que anuncian las empresas, recogido cada 5 minutos. De lo importante te llega un email al momento. ${imp24 ? `<b>${imp24} importante${imp24 === 1 ? '' : 's'} en 24 h.</b>` : ''}</p>
-    <div class="aviso"><b>Ojo:</b> las exploradoras son de lo más arriesgado de la bolsa. La gran mayoría nunca llega a abrir una mina, casi todas sacan acciones nuevas cada año para pagar las perforaciones, y cuando sale la noticia el precio suele haberse movido ya. Las cifras se leen del comunicado de forma automática: compruébalas en el original.</div>
-    <div class="chips">${chip('hzg', 'todo', HZ.g === 'todo', 'Todo')}${chip('hzg', 'min', HZ.g === 'min', '⛏️ Minería')}${chip('hzg', 'tec', HZ.g === 'tec', '🔬 Tecnología')}
-      ${chip('hzsolo', '1', HZ.solo, '★ Solo importantes')}${chip('hzcom', '1', HZ.com, 'Solo comunicados')}</div>
+    <p class="sub">Minería y tecnología: lo que anuncian las empresas, recogido cada 5 minutos y <b>numerado por importancia, crecimiento histórico y FOMO</b>. De lo importante te llega un email al momento.${imp24 ? ` <b>${imp24} importante${imp24 === 1 ? '' : 's'} en 24 h.</b>` : ''}</p>
+    ${medidoHzHTML()}
+    <div class="chips seg">${ORDEN_HZ.map(([k, t]) => chip('hzo', k, HZ.orden === k, t)).join('')}</div>
+    <div class="chips">${PER_HZ.map(([d, t]) => chip('hzp', d, HZ.per === d, t)).join('')}<span class="sep"></span>${chip('hzg', 'min', HZ.g === 'min', '⛏️ Minería')}${chip('hzg', 'tec', HZ.g === 'tec', '🔬 Tecnología')}${chip('hzsolo', '1', HZ.solo, '★ Importantes')}${chip('hzof', '1', HZ.of, '✓ Solo oficiales')}${chip('hzcom', '1', !HZ.com, 'Con prensa')}</div>
     ${ets.length ? `<div class="chips">${chip('hzet', '', !HZ.et, 'Todos')}${ets.map(([x, n]) => chip('hzet', x, HZ.et === x, `${esc(x)} <span class="muted">${n}</span>`)).join('')}</div>` : ''}
-    ${cuerpo || '<div class="vacio">Nada con estos filtros en los últimos 30 días.</div>'}
+    <details class="hz-como"><summary>¿Cómo se numeran? ${HZ.orden === 'rank' ? 'Ranking = 50 % importancia + 25 % crecimiento + 25 % FOMO' : ''}</summary>
+      <p><b>⭐ Importancia (0-100):</b> el tipo de noticia (una mina que empieza a producir o un estudio con su valor pesan más que un plan de perforación), sus cifras (el tramo perforado frente al listón de su metal, el valor de un estudio o el importe de un contrato) comparadas con lo que vale la empresa en bolsa, y de dónde viene: de la propia empresa suma, de un resumen automático resta.</p>
+      <p><b>📈 Crecimiento histórico (0-100):</b> lo que ha hecho la acción en 1, 3 y 5 años, sobre todo a largo plazo. 50 = plana; 90 = ha subido de media un 40 % al año; 10 = ha perdido un 40 % al año. La mayoría de las exploradoras pierden a largo plazo: es normal verlas en rojo.</p>
+      <p><b>🔥 FOMO (0-100):</b> cuánto ruido hay ahora: lo que ha subido desde la noticia, el volumen frente a lo normal, cuántas webs la cuentan y el último mes. <b>FOMO alto quiere decir que ya ha corrido</b>: quien compra entonces suele llegar tarde. Arriba tienes lo medido en vivo.</p>
+      <p><b>✓ Ticker comprobado:</b> el nombre oficial de la acción casa con el de la noticia (si no casa, se quita el ticker). Las de la bolsa australiana vienen de sus anuncios oficiales, con el PDF.</p>
+    </details>
+    ${cuerpo || '<div class="vacio">Nada con estos filtros en este periodo.</div>'}
     ${L.length > HZ.n ? `<button class="btn" style="width:100%;margin-top:12px" data-hzmas="1">Ver más (${L.length - HZ.n})</button>` : ''}
-    <p class="muted" style="font-size:12px;margin-top:14px">Actualizado ${hace(S.hz.act)} · ${S.hz.n} noticias en 30 días. «Importante» sigue reglas fijas: descubrimientos, perforaciones por encima de un listón por metal (por ejemplo, 100 g·m de oro), recursos iniciales, estudios con VAN, permisos clave, producción, problemas graves, aprobaciones de la FDA, ensayos en fase 3 positivos, récords técnicos y contratos de $100 M o más.</p>`;
+    <div class="aviso" style="margin-top:16px"><b>Ojo:</b> las exploradoras son de lo más arriesgado de la bolsa: casi ninguna llega a abrir una mina y casi todas sacan acciones nuevas cada año para pagar las perforaciones. Las cifras se leen del comunicado de forma automática: compruébalas en el original.</div>
+    <p class="muted" style="font-size:12px;margin-top:14px">Actualizado ${hace(S.hz.act)} · ${S.hz.n} noticias de empresas que cotizan en 30 días. «Importante» (y el email) sigue reglas fijas: descubrimientos, perforaciones por encima de un listón por metal (por ejemplo, 100 g·m de oro con al menos 1 g/t), recursos iniciales o que crecen, estudios con VAN, permisos clave, producción, acuerdos con grandes, problemas graves, aprobaciones de la FDA, ensayos en fase 3 positivos, récords técnicos y contratos de $100 M o más; además, ticker comprobado e importancia de 55 o más.</p>`;
 }
 
 function hallazgosInicioHTML() {
-  const L = (S.hz?.h || []).filter(h => h.imp).slice(0, 3);
+  const lim = Date.now() - 3 * 864e5;
+  const L = (S.hz?.h || []).filter(h => !h.pr && new Date(h.f) >= lim).sort((a, b) => rankHz(b) - rankHz(a)).slice(0, 3);
   if (!L.length) return '';
-  return `<h3>🔭 Últimos hallazgos importantes</h3>${L.map(h => {
+  return `<h3>🔭 Lo más importante ahora</h3>${L.map((h, i) => {
     const [ico, nom] = TIPO_HZ[h.k] || ['•', h.k];
     const tk = (h.tk || [])[0];
-    return `<div class="fila" data-ir="hallazgos"><div class="info"><div class="nom">${ico} ${esc(h.em)} ${tk ? `<span class="tk">${esc(tk.s)}</span>` : ''}</div>
-      <div class="det">${esc(nom)}${resumenHz(h) ? ' · ' + resumenHz(h).replace(/<[^>]+>/g, '') : ''} · ${hace(h.f.slice(0, 16) + 'Z')}</div></div></div>`;
+    const res = resumenHz(h).replace(/<[^>]+>/g, '');
+    return `<div class="fila" data-ir="hallazgos"><span class="hz-n">${i + 1}</span><div class="info"><div class="nom">${ico} ${esc(h.em)} ${tk ? `<span class="tk">${esc(tk.s)}</span>` : ''}</div>
+      <div class="det">${esc(nom)}${res ? ' · ' + esc(res) : ''} · ${hace(h.f.slice(0, 16) + 'Z')}</div></div>
+      <div class="der"><b title="Importancia (0-100)">⭐ ${h.si ?? '—'}</b><span class="muted" title="FOMO (0-100)">🔥 ${h.sf ?? '—'}</span></div></div>`;
   }).join('')}`;
+}
+
+// En la ficha de una empresa de EE. UU.: sus hallazgos de los últimos 30 días
+function hallazgosFichaHTML(e) {
+  const L = (S.hz?.h || []).filter(h => (h.tk || []).some(t => t.s === e.t && EEUU.includes(t.b))).slice(0, 6);
+  if (!L.length) return '';
+  return `<h3>Hallazgos · 30 días</h3><div class="card">${L.map(h => {
+    const [ico, nom] = TIPO_HZ[h.k] || ['•', h.k];
+    const res = resumenHz(h).replace(/<[^>]+>/g, '');
+    return `<a class="noti" href="${esc(h.u)}" target="_blank" rel="noopener">${ico} <b>${esc(nom)}</b>${res ? ' · ' + esc(res) : ''} — ${esc(h.ti)}
+      <small>${esc(h.fu || '')} · ${hace(h.f.slice(0, 16) + 'Z')} · importancia ${h.si ?? '—'}</small></a>`;
+  }).join('')}</div>`;
 }
 
 async function cargarHallazgos() {
@@ -1348,6 +1479,8 @@ async function cargarHallazgos() {
   pintarHallazgos();
   const b = $('#hz-inicio');
   if (b) b.innerHTML = hallazgosInicioHTML();
+  const fh = $('#ficha-hz'), t = $('#hoja.on .tk')?.textContent;
+  if (fh && t && S.porT[t]) fh.innerHTML = hallazgosFichaHTML(S.porT[t]);
 }
 
 function cerrarFicha() { $('#velo').classList.remove('on'); $('#hoja').classList.remove('on'); }
@@ -1519,14 +1652,18 @@ document.addEventListener('click', ev => {
     bo.dataset.seguro = '1'; bo.textContent = '¿Borrar?'; bo.classList.add('confirmar');
     return setTimeout(() => { if (bo.isConnected) { delete bo.dataset.seguro; bo.textContent = '✕'; bo.classList.remove('confirmar'); } }, 3000);
   }
-  const hz = ev.target.closest('[data-hzg],[data-hzsolo],[data-hzcom],[data-hzet],[data-hzmas]');
+  const hz = ev.target.closest('[data-hzg],[data-hzsolo],[data-hzcom],[data-hzof],[data-hzet],[data-hzmas],[data-hzo],[data-hzp]');
   if (hz) {
     const d = hz.dataset;
-    if (d.hzg) HZ.g = d.hzg;
+    if (d.hzg) HZ.g = HZ.g === d.hzg ? 'todo' : d.hzg;
     if (d.hzsolo) HZ.solo = !HZ.solo;
     if (d.hzcom) HZ.com = !HZ.com;
+    if (d.hzof) HZ.of = !HZ.of;
     if ('hzet' in d) HZ.et = d.hzet || null;
-    HZ.n = d.hzmas ? HZ.n + 80 : 80;
+    if (d.hzo) HZ.orden = d.hzo;
+    if (d.hzp) HZ.per = Number(d.hzp);
+    HZ.n = d.hzmas ? HZ.n + 40 : 40;
+    guardarHZ();
     return pintarHallazgos();
   }
   const fi = ev.target.closest('[data-fipo]');
